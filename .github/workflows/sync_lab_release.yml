@@ -29,11 +29,12 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Create Desktop Bot app token (if available)
         id: app-token
-        if: ${{ vars.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v2
+        continue-on-error: true
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Note token source
         run: |
           if [ -n "${{ steps.app-token.outputs.token }}" ]; then

@@ -207,15 +207,11 @@ jobs:
           LATEST='${{ env.latest }}'
           BRANCH="update-to-v${LATEST}"
 
-          # 1) Crear/reusar *partiendo del remoto* si existe
+          # 1) Crear/reusar *siempre desde HEAD actual* (no desde origin/BRANCH)
           git fetch origin "${BRANCH}" || true
-          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-            git checkout -B "${BRANCH}" "origin/${BRANCH}"
-          else
-            git checkout -B "${BRANCH}"
-          fi
+          git checkout -B "${BRANCH}"
 
-          # 2) Comitear solo si hay cambios
+          # 2) Comitear solo si hay cambios (los hay: locks, yaml, package.json, etc.)
           git add -A
           if git diff --cached --quiet; then
             echo "No staged changes; nothing to commit."
@@ -223,13 +219,12 @@ jobs:
             git commit -m "Update to JupyterLab v${LATEST}"
           fi
 
-          # 3) Rebase sobre remoto si existe (evita non-fast-forward)
-          git fetch origin "${BRANCH}" || true
+          # 3) Si la rama existe en remoto, rebase para evitar non-fast-forward
           if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
             git pull --rebase origin "${BRANCH}" || true
           fi
 
-          # 4) Push seguro para ramas del bot
+          # 4) Push seguro para ramas generadas por el bot
           git push --force-with-lease --set-upstream origin "${BRANCH}"
 
           # 5) PR: comenta si ya existe, crea si no

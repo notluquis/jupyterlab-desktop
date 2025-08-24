@@ -129,6 +129,21 @@ jobs:
           if [[ -n "$(git status --porcelain package.json)" ]]; then
             echo "update_available=true" >> "$GITHUB_ENV"
           fi
+
+      # --- Preparar rama de trabajo: si la rama remota existe, partir de ella ---
+      - name: Prepare update branch if it already exists
+        run: |
+          set -eux
+          LATEST='${{ steps.get-latest-jupyterlab-version.outputs.result }}'
+          BRANCH="update-to-v${LATEST}"
+          git fetch origin "${BRANCH}" || true
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            # Trabaja SOBRE la rama remota existente (contenido ya actualizado)
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            # Aún no existe: seguimos en la base actual y más tarde crearemos la rama
+            echo "Remote branch ${BRANCH} not found; will create it later."
+          fi
       # -----------------------------------------------------------------------
       # 8) Install JS deps only when an update is needed.
       #    No --frozen-lockfile: allow Yarn to refresh yarn.lock if needed.

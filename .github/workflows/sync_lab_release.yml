@@ -30,12 +30,18 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Create Desktop Bot app token (if available)
         id: app-token
+        if: ${{ vars.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v2
-        continue-on-error: true
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
+      - name: Note token source
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "::notice title=Auth::Using Desktop Bot (GitHub App) token for pushes."
+          else
+            echo "::notice title=Auth::Using default GITHUB_TOKEN (github-actions[bot]) for pushes."
+          fi
       # -----------------------------------------------------------------------
       # 2) Checkout without persisting credentials, so we control *which* token
       #    is used for pushes (App token if present, else GITHUB_TOKEN).
@@ -200,20 +206,33 @@ jobs:
           set -eux
           LATEST='${{ env.latest }}'
           BRANCH="update-to-v${LATEST}"
-          # Create/reuse the branch without failing if it already exists
+
+          # 1) Crear/reusar *partiendo del remoto* si existe
           git fetch origin "${BRANCH}" || true
-          git checkout -B "${BRANCH}"
-          # Stage/commit only when there are actual changes
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            git checkout -B "${BRANCH}"
+          fi
+
+          # 2) Comitear solo si hay cambios
           git add -A
           if git diff --cached --quiet; then
             echo "No staged changes; nothing to commit."
-            exit 0
           else
             git commit -m "Update to JupyterLab v${LATEST}"
           fi
-          # Push using the token-bound origin
-          git push --set-upstream origin "${BRANCH}"
-          # If a PR is already open for this branch, just comment; else create a new PR.
+
+          # 3) Rebase sobre remoto si existe (evita non-fast-forward)
+          git fetch origin "${BRANCH}" || true
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            git pull --rebase origin "${BRANCH}" || true
+          fi
+
+          # 4) Push seguro para ramas del bot
+          git push --force-with-lease --set-upstream origin "${BRANCH}"
+
+          # 5) PR: comenta si ya existe, crea si no
           PR_NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)"
           if [ -n "${PR_NUMBER}" ]; then
             echo "::notice title=PR::Existing PR #${PR_NUMBER} detected; pushing updates only."

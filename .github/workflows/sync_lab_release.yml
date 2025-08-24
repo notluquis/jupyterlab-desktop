@@ -1,38 +1,3 @@
-# -----------------------------------------------------------------------------
-#  Workflow: Check for new JupyterLab releases
-#
-#  What it does
-#  ------------
-#  - Detects the latest stable JupyterLab release (vX.Y.Z).
-#  - Bumps version files (via tbump) to X.Y.Z-1.
-#  - If changes exist, installs JS/Conda deps and updates lock files.
-#  - Pushes a branch "update-to-vX.Y.Z" and opens/updates a PR.
-#
-#  Auth model (important)
-#  ----------------------
-#  - Prefer a GitHub App token (the "Desktop Bot") if available in this repo.
-#    This requires repo-level: vars.APP_ID and secrets.APP_PRIVATE_KEY.
-#  - If unavailable (e.g., forks), fall back to default GITHUB_TOKEN
-#    (github-actions[bot]) which can push to the fork.
-#
-#  Design choices
-#  --------------
-#  - macOS runner: use `macos-latest` (keeps us aligned with official runners).
-#  - Python 3.13 for host tooling (you’re fine with the tarfile deprecation
-#    warnings; this keeps us forward-compatible).
-#  - Yarn: use plain `yarn install` (no --frozen-lockfile) to avoid failures
-#    when lock and package.json drift; lock changes are captured in the PR.
-#  - Micromamba instead of conda: faster and conda-forge-only by default.
-#  - No node_modules caching (keeps things simple and avoids cross-run quirks);
-#    Yarn cache is enabled via setup-node.
-#
-#  Safety rails
-#  ------------
-#  - No changes → no PR.
-#  - If a PR for the same branch already exists, we just push updates and
-#    (optionally) add a comment—no duplicate PRs.
-# -----------------------------------------------------------------------------
-
 name: Check for new JupyterLab releases
 
 on:
@@ -182,19 +147,24 @@ jobs:
         if: env.update_available == 'true'
         uses: mamba-org/setup-micromamba@v1
         with:
-          micromamba-version: 'latest'
+          micromamba-version: latest
           init-shell: bash
-          channels: conda-forge
           condarc: |
             channel_priority: strict
             channels:
               - conda-forge
           cache-downloads: true
+          cache-downloads-key: micromamba-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('env_installer/conda-*.lock') }}
           cache-environment: false
 
       - name: Install conda-lock CLI
         if: env.update_available == 'true'
         run: micromamba install -y -n base -c conda-forge conda-lock
+
+      - name: Add micromamba bin to PATH
+        if: env.update_available == 'true'
+        run: |
+          echo "$MAMBA_ROOT_PREFIX/bin" >> "$GITHUB_PATH"
 
       # -----------------------------------------------------------------------
       # 10) Update the conda lock files and refresh the binary sign lists.

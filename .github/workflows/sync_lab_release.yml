@@ -9,15 +9,13 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   check_for_lab_updates:
     runs-on: macos-latest
     environment: sync
-
-    # Required for actions/create-github-app-token (OIDC → GitHub App).
-    permissions:
-      id-token: write
+      
 
     defaults:
       run:

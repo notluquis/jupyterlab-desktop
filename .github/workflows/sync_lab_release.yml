@@ -5,6 +5,7 @@ on:
     - cron: 30 17 * * *
   workflow_dispatch:
 
+# Repo-level permissions
 permissions:
   contents: write
   pull-requests: write
@@ -12,129 +13,169 @@ permissions:
 jobs:
   check_for_lab_updates:
     runs-on: macos-latest
-    # En tu fork NO necesitas environment ni App token
+    environment: sync
+
+    # OIDC for actions/create-github-app-token
+    permissions:
+      id-token: write
+
     defaults:
       run:
-        # needed for conda to work
         shell: bash -el {0}
 
     steps:
-      # Usa el GITHUB_TOKEN por defecto (persist-credentials: true)
+      # 1) Prefer Desktop Bot app token when available (in upstream).
+      - name: Create Desktop Bot app token (if available)
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # 2) Checkout WITHOUT persisting default credentials
       - uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Install hub
+      # 3) Configure git auth for pushes/PRs
+      - name: Configure git auth
         run: |
-          brew install hub
+          set -eux
+          TOKEN="${{ steps.app-token.outputs.token || github.token }}"
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "::notice title=Auth::Using Desktop Bot token"
+          else
+            echo "::notice title=Auth::Using default GITHUB_TOKEN (github-actions[bot])"
+          fi
+          git config user.name "JupyterLab Desktop Bot"
+          git config user.email "jupyterlab-bot@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
 
-      - name: Set up Git identity (bot)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Set up Python
+      # 4) Host Python
+      - name: Set up Python (host tooling)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.13'
 
       - name: Install Python dependencies
-        run: |
-          python -m pip install tbump
+        run: python -m pip install tbump
 
-      - name: 'Get latest JupyterLab version'
-        uses: actions/github-script@v7
-        id: get-latest-jupyterlab-version
+      # 5) Node + Yarn cache
+      - name: Set up Node (cache Yarn)
+        uses: actions/setup-node@v4
         with:
-          # En tu fork basta el GITHUB_TOKEN
-          github-token: ${{ github.token }}
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: '**/yarn.lock'
+
+      # 6) Cache micromamba package downloads
+      - name: Cache micromamba downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/micromamba
+          key: micromamba-${{ runner.os }}-${{ hashFiles('env_installer/conda-*.lock') }}
+          restore-keys: |
+            micromamba-${{ runner.os }}-
+
+      # 7) Set up micromamba (conda-forge only)
+      - name: Set up Micromamba
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          micromamba-version: "latest"
+          init-shell: bash
+          log-level: info
+          condarc: |
+            channels:
+              - conda-forge
+            channel_priority: strict
+          cache-downloads: true
+          cache-env: false
+
+      # 8) Get latest JupyterLab version
+      - name: Get latest JupyterLab version
+        id: get-latest-jupyterlab-version
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
           script: |
             const releases = await github.rest.repos.listReleases({
               owner: "jupyterlab",
               repo: "jupyterlab"
-            })
-            const latestRelease = releases.data.find(
-              r => r.tag_name?.startsWith('v') && !(r.draft || r.prerelease)
-            )
-            return latestRelease ? latestRelease.tag_name.substring(1) : ''
+            });
+            const latest = releases.data.find(r =>
+              r.tag_name?.startsWith('v') && !(r.draft || r.prerelease)
+            );
+            return latest ? latest.tag_name.substring(1) : '';
           result-encoding: string
 
+      # 9) Bump versions
       - name: Check for new releases
         shell: bash
         run: |
           set -eux
-          export LATEST=${{ steps.get-latest-jupyterlab-version.outputs.result }}
+          LATEST='${{ steps.get-latest-jupyterlab-version.outputs.result }}'
           echo "latest=${LATEST}" >> $GITHUB_ENV
-          tbump --only-patch ${LATEST}-1 --non-interactive
-          if [[ ! -z "$(git status --porcelain package.json)" ]]; then
+          tbump --only-patch "${LATEST}-1" --non-interactive
+          if [[ -n "$(git status --porcelain package.json)" ]]; then
             echo "update_available=true" >> $GITHUB_ENV
           fi
 
-      - name: Install Node
-        if: env.update_available == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-      
+      # 10) Install npm deps only if update is needed
       - name: Install npm dependencies
         if: env.update_available == 'true'
         run: |
           npm install --global yarn
-          yarn install
+          yarn install --frozen-lockfile
 
-      - uses: conda-incubator/setup-miniconda@v3
-        if: env.update_available == 'true'
-        with:
-          auto-update-conda: true
-          auto-activate-base: true
-          activate-environment: ""
-          channels: conda-forge
-
-      - name: Install conda dependencies
-        if: env.update_available == 'true'
-        run: conda install -c conda-forge conda conda-lock -y
-
-      - name: Update conda lock files
-        if: env.update_available == 'true'
-        run: yarn update_conda_lock
-      
+      # 11) Update binary sign list osx-64
       - name: Update binary sign list osx-64
         if: env.update_available == 'true'
         run: |
-          yarn clean_env_installer && conda-lock install --no-validate-platform --prefix ./env_installer/jlab_server ./env_installer/conda-osx-64.lock
+          yarn clean_env_installer
+          micromamba create -y -p ./env_installer/jlab_server -f ./env_installer/conda-osx-64.lock
           yarn update_binary_sign_list --platform osx-64
 
+      # 12) Update binary sign list osx-arm64
       - name: Update binary sign list osx-arm64
         if: env.update_available == 'true'
         run: |
-          yarn clean_env_installer && conda-lock install --no-validate-platform --prefix ./env_installer/jlab_server ./env_installer/conda-osx-arm64.lock
+          yarn clean_env_installer
+          micromamba create -y -p ./env_installer/jlab_server -f ./env_installer/conda-osx-arm64.lock
           yarn update_binary_sign_list --platform osx-arm64
 
-      - name: Create a PR for the new version (fork mode)
+      # 13) Open or update PR
+      - name: Open or update PR
         if: env.update_available == 'true'
         shell: bash
         env:
-          # Hub usa GITHUB_TOKEN; aquí el del bot por defecto
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -eux
-          export LATEST=${{ env.latest }}
-          export BRANCH_NAME=update-to-v${LATEST}
+          LATEST='${{ env.latest }}'
+          BRANCH="update-to-v${LATEST}"
 
-          # Crea o reusa la rama sin fallar si ya existe
-          git fetch origin "${BRANCH_NAME}" || true
-          git checkout -B "${BRANCH_NAME}"
+          git fetch origin "${BRANCH}" || true
+          git checkout -B "${BRANCH}"
 
           git add -A
           if git diff --cached --quiet; then
             echo "No staged changes; nothing to commit."
+            exit 0
           else
             git commit -m "Update to JupyterLab v${LATEST}"
           fi
 
-          # Empuja como github-actions[bot] (tiene write en TU fork)
-          git push --set-upstream origin "${BRANCH_NAME}"
+          git push --set-upstream origin "${BRANCH}"
 
-          # Crea PR en tu fork (rama -> rama por defecto del fork)
-          hub pull-request -m "Update to JupyterLab v${LATEST}" \
-            -m "Automated update in fork."
+          PR_NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)"
+          if [ -n "${PR_NUMBER}" ]; then
+            echo "::notice title=PR::Existing PR #${PR_NUMBER} detected; pushing updates only."
+            gh pr comment "${PR_NUMBER}" --body "Automated update: refreshed lock files and metadata." || true
+          else
+            echo "::notice title=PR::Creating a new PR for ${BRANCH}."
+            gh pr create \
+              --title "Update to JupyterLab v${LATEST}" \
+              --body  "New JupyterLab release [v${LATEST}](https://github.com/jupyterlab/jupyterlab/releases/tag/v${LATEST}) is available. Please review the lock files carefully." \
+              --fill
+          fi

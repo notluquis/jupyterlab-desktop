@@ -1,0 +1,86 @@
+name: Auth Probe (whoami / remote / push-dry-run)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  auth_probe:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        strategy: [github-token, app-token]
+
+    steps:
+      - name: Create App token (only for app-token strategy)
+        id: app-token
+        if: matrix.strategy == 'app-token'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout (avoid persisting default creds so we control the remote)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install gh CLI (for easy whoami)
+        run: |
+          brew install gh
+
+      - name: Configure git user
+        run: |
+          git config user.name "Probe Bot"
+          git config user.email "probe@example.com"
+
+      - name: Select token & set origin remote
+        env:
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eux
+          if [ "${{ matrix.strategy }}" = "app-token" ]; then
+            TOKEN="${{ steps.app-token.outputs.token }}"
+            echo "Using token: APP (create-github-app-token)"
+          else
+            TOKEN="${{ github.token }}"
+            echo "Using token: github.token (github-actions[bot])"
+          fi
+          # Reapuntar 'origin' para asegurarnos qué credenciales usa git push
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GH_REPO}.git"
+
+          # Guardar el token en un archivo temporal para curl (para el paso 'Who am I?')
+          echo "${TOKEN}" > token.txt
+
+      - name: Who am I? (gh api user)
+        env:
+          GH_TOKEN: ""
+        run: |
+          set -eux
+          # GH_TOKEN se toma de token.txt para no exponerlo en env global
+          GH_TOKEN="$(cat token.txt)" gh api user --jq '.login + " (" + .type + ")"' || true
+
+      - name: Show git remotes
+        run: git remote -v
+
+      - name: Create dummy commit (branch) to test push
+        run: |
+          set -eux
+          BRANCH="auth-probe/${{ matrix.strategy }}-$(date +%s)"
+          git checkout -b "${BRANCH}"
+          echo "$(date)" > AUTH_PROBE_${{ matrix.strategy }}.txt
+          git add -A
+          git commit -m "auth probe commit via ${{ matrix.strategy }}"
+
+          echo "Branch to push: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "Matrix strategy: ${{ matrix.strategy }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Push --dry-run (should reveal permission errors without creating refs)
+        run: |
+          set -eux
+          git push --dry-run origin HEAD

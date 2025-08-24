@@ -1,3 +1,4 @@
+
 name: Check for new JupyterLab releases
 
 on:
@@ -13,8 +14,9 @@ permissions:
 
 jobs:
   check_for_lab_updates:
-    runs-on: macos-15
+    runs-on: macos-latest
     environment: sync
+      
 
     defaults:
       run:
@@ -59,13 +61,11 @@ jobs:
           git config user.name  "JupyterLab Desktop Bot"
           git config user.email "jupyterlab-bot@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
-
       # gh is preinstalled on macOS runners, but ensure it's present just in case.
       - name: Ensure GitHub CLI is available
         run: |
           set -eux
           command -v gh >/dev/null 2>&1 || brew install gh
-
       # -----------------------------------------------------------------------
       # 4) Host tooling: Python + tbump. You asked for Python 3.13 explicitly.
       # -----------------------------------------------------------------------
@@ -123,7 +123,6 @@ jobs:
           if [[ -n "$(git status --porcelain package.json)" ]]; then
             echo "update_available=true" >> "$GITHUB_ENV"
           fi
-
       # -----------------------------------------------------------------------
       # 8) Install JS deps only when an update is needed.
       #    No --frozen-lockfile: allow Yarn to refresh yarn.lock if needed.
@@ -134,7 +133,6 @@ jobs:
           set -eux
           npm install --global yarn
           yarn install
-
       # -----------------------------------------------------------------------
       # 9) Micromamba (fast conda). conda-forge only; cache downloads enabled.
       #    We install conda-lock in base so the CLI is available.
@@ -161,7 +159,6 @@ jobs:
         if: env.update_available == 'true'
         run: |
           echo "$MAMBA_ROOT_PREFIX/bin" >> "$GITHUB_PATH"
-
       # -----------------------------------------------------------------------
       # 10) Update the conda lock files and refresh the binary sign lists.
       #     Use --mamba so conda-lock drives micromamba, not classic conda.
@@ -179,7 +176,6 @@ jobs:
             --prefix ./env_installer/jlab_server \
             ./env_installer/conda-osx-64.lock
           yarn update_binary_sign_list --platform osx-64
-
       - name: Update binary sign list osx-arm64
         if: env.update_available == 'true'
         run: |
@@ -189,9 +185,11 @@ jobs:
             --prefix ./env_installer/jlab_server \
             ./env_installer/conda-osx-arm64.lock
           yarn update_binary_sign_list --platform osx-arm64
-
       # -----------------------------------------------------------------------
-      # 11) Create or update the PR (idempotente y sin non-FF).
+      # 11) Create or update the PR. Idempotent:
+      #     - No changes → exit early (no PR).
+      #     - If PR for the branch exists → push updates and comment.
+      #     - Else → create a new PR with gh CLI.
       # -----------------------------------------------------------------------
       - name: Open or update PR
         if: env.update_available == 'true'
@@ -202,18 +200,10 @@ jobs:
           set -eux
           LATEST='${{ env.latest }}'
           BRANCH="update-to-v${LATEST}"
-
-          # Trae refs remotas de la rama si existe
+          # Create/reuse the branch without failing if it already exists
           git fetch origin "${BRANCH}" || true
-
-          # Si existe en remoto, parte de origin/BRANCH; si no, crea desde HEAD actual
-          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
-            git checkout -B "${BRANCH}" "origin/${BRANCH}"
-          else
-            git checkout -B "${BRANCH}"
-          fi
-
-          # Stage/commit solo cuando hay cambios
+          git checkout -B "${BRANCH}"
+          # Stage/commit only when there are actual changes
           git add -A
           if git diff --cached --quiet; then
             echo "No staged changes; nothing to commit."
@@ -221,15 +211,9 @@ jobs:
           else
             git commit -m "Update to JupyterLab v${LATEST}"
           fi
-
-          # Push normal; si hay carrera, rebase rápido y reintenta con lease
-          git push --set-upstream origin "${BRANCH}" || {
-            git fetch origin "${BRANCH}" || true
-            git rebase "origin/${BRANCH}" || true
-            git push --force-with-lease origin "${BRANCH}"
-          }
-
-          # PR: comenta si ya existe; crea si no.
+          # Push using the token-bound origin
+          git push --set-upstream origin "${BRANCH}"
+          # If a PR is already open for this branch, just comment; else create a new PR.
           PR_NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)"
           if [ -n "${PR_NUMBER}" ]; then
             echo "::notice title=PR::Existing PR #${PR_NUMBER} detected; pushing updates only."

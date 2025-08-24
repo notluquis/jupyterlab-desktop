@@ -45,6 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          token: ${{ github.token }}
 
       # -----------------------------------------------------------------------
       # 3) Bind 'origin' to the chosen token and set an explicit committer.

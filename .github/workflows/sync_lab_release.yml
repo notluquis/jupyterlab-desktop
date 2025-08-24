@@ -118,6 +118,20 @@ jobs:
       # 7) Bump to X.Y.Z-1 and detect whether anything changed.
       #    If package.json changed, we consider that “update available”.
       # -----------------------------------------------------------------------
+      # --- Preparar rama de trabajo: si la rama remota existe, partir de ella ---
+      - name: Prepare update branch if it already exists
+        run: |
+          set -eux
+          LATEST='${{ steps.get-latest-jupyterlab-version.outputs.result }}'
+          BRANCH="update-to-v${LATEST}"
+          git fetch origin "${BRANCH}" || true
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            # Trabaja SOBRE la rama remota existente (contenido ya actualizado)
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            # Aún no existe: seguimos en la base actual y más tarde crearemos la rama
+            echo "Remote branch ${BRANCH} not found; will create it later."
+          fi
       - name: Bump version and detect changes
         shell: bash
         run: |

@@ -1,4 +1,3 @@
-
 name: Check for new JupyterLab releases
 
 on:

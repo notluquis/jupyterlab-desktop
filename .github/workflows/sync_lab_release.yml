@@ -15,7 +15,6 @@ jobs:
   check_for_lab_updates:
     runs-on: macos-15
     environment: sync
-      
 
     defaults:
       run:
@@ -119,9 +118,7 @@ jobs:
           set -eux
           LATEST='${{ steps.get-latest-jupyterlab-version.outputs.result }}'
           echo "latest=${LATEST}" >> "$GITHUB_ENV"
-
           tbump --only-patch "${LATEST}-1" --non-interactive
-
           # If package.json changed, schedule the rest of the workflow.
           if [[ -n "$(git status --porcelain package.json)" ]]; then
             echo "update_available=true" >> "$GITHUB_ENV"
@@ -194,10 +191,7 @@ jobs:
           yarn update_binary_sign_list --platform osx-arm64
 
       # -----------------------------------------------------------------------
-      # 11) Create or update the PR. Idempotent:
-      #     - No changes → exit early (no PR).
-      #     - If PR for the branch exists → push updates and comment.
-      #     - Else → create a new PR with gh CLI.
+      # 11) Create or update the PR (idempotente y sin non-FF).
       # -----------------------------------------------------------------------
       - name: Open or update PR
         if: env.update_available == 'true'
@@ -209,11 +203,17 @@ jobs:
           LATEST='${{ env.latest }}'
           BRANCH="update-to-v${LATEST}"
 
-          # Create/reuse the branch without failing if it already exists
+          # Trae refs remotas de la rama si existe
           git fetch origin "${BRANCH}" || true
-          git checkout -B "${BRANCH}"
 
-          # Stage/commit only when there are actual changes
+          # Si existe en remoto, parte de origin/BRANCH; si no, crea desde HEAD actual
+          if git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            git checkout -B "${BRANCH}"
+          fi
+
+          # Stage/commit solo cuando hay cambios
           git add -A
           if git diff --cached --quiet; then
             echo "No staged changes; nothing to commit."
@@ -222,10 +222,14 @@ jobs:
             git commit -m "Update to JupyterLab v${LATEST}"
           fi
 
-          # Push using the token-bound origin
-          git push --set-upstream origin "${BRANCH}"
+          # Push normal; si hay carrera, rebase rápido y reintenta con lease
+          git push --set-upstream origin "${BRANCH}" || {
+            git fetch origin "${BRANCH}" || true
+            git rebase "origin/${BRANCH}" || true
+            git push --force-with-lease origin "${BRANCH}"
+          }
 
-          # If a PR is already open for this branch, just comment; else create a new PR.
+          # PR: comenta si ya existe; crea si no.
           PR_NUMBER="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)"
           if [ -n "${PR_NUMBER}" ]; then
             echo "::notice title=PR::Existing PR #${PR_NUMBER} detected; pushing updates only."

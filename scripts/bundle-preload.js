@@ -1,10 +1,6 @@
-// Copyright (c) Jupyter Development Team.
-// Distributed under the terms of the Modified BSD License.
+// Copyright (c) Jupyter Development Team. Distributed under the terms of the Modified BSD License.
 
-// Bundles the imports in the compiled preload.js files, since import/require of
-// local modules is not allowed in a sandboxed Electron preload at runtime. Each
-// preload is bundled in place; electron is kept external (the runtime provides
-// it). Replaces the previous webpack config.
+// Bundles the imports in the compiled preload.js files, since import/require of local modules is not allowed in a sandboxed Electron preload at runtime. Each preload is bundled in place; electron is kept external (the runtime provides it). Replaces the previous webpack config.
 const esbuild = require('esbuild');
 
 const preloadPrefix = 'build/out/main';

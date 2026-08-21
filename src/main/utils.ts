@@ -31,11 +31,7 @@ export function isDevMode(): boolean {
   return require.main.filename.indexOf('app.asar') === -1;
 }
 
-// On macOS a packaged GUI app inherits a minimal PATH that misses the entries a
-// login shell sets up in .bashrc / .zshrc / .bash_profile (pyenv, conda,
-// homebrew, nvm). Spawn the user's login shell, read its env, and adopt its
-// PATH. Replaces the fix-path -> shell-path -> shell-env -> execa dependency
-// chain; the login-shell spawn is preserved exactly.
+// On macOS a packaged GUI app inherits a minimal PATH that misses the entries a login shell sets up in .bashrc / .zshrc / .bash_profile (pyenv, conda, homebrew, nvm). Spawn the user's login shell, read its env, and adopt its PATH. Replaces the fix-path -> shell-path -> shell-env -> execa dependency chain; the login-shell spawn is preserved exactly.
 export function fixDarwinPath(): void {
   if (process.platform !== 'darwin') {
     return;
@@ -146,8 +142,7 @@ export function isDarkTheme(themeType: string) {
   }
 }
 
-// data:, about:blank and other opaque sources serialize to the literal "null"
-// origin, which must never be treated as a real origin.
+// data:, about:blank and other opaque sources serialize to the literal "null" origin, which must never be treated as a real origin.
 function originOf(url: string | undefined | null): string | null {
   if (!url) {
     return null;

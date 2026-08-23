@@ -2,7 +2,7 @@
 Thanks for contributing to JupyterLab Desktop!
 Please fill out the following items to submit a pull request.
 See the developer documentation for more information:
-https://github.com/jupyterlab/jupyterlab-desktop/blob/master/dev.md
+https://github.com/jupyterlab/jupyterlab-desktop/blob/master/CONTRIBUTING.md
 -->
 
 ## References
@@ -27,8 +27,8 @@ https://github.com/jupyterlab/jupyterlab-desktop/blob/master/dev.md
 
 ## Manual testing
 
-<!-- Which platforms this was run on, and which of the checks in the Review guidance section of dev.md were exercised. -->
-<!-- https://github.com/jupyterlab/jupyterlab-desktop/blob/master/dev.md#review-guidance -->
+<!-- Which platforms this was run on, and which of the checks in the Review guidance section of CONTRIBUTING.md were exercised. -->
+<!-- https://github.com/jupyterlab/jupyterlab-desktop/blob/master/CONTRIBUTING.md#review-guidance -->
 
 ## AI usage
 

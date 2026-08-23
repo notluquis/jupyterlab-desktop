@@ -94,7 +94,7 @@ JupyterLab Desktop currently supports user-friendly [prebuilt](https://jupyterla
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for where each part of the project is documented, and [dev.md](dev.md) for building, running and testing the application.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running, testing and packaging the application.
 
 ## Getting help
 

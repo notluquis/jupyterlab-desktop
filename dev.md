@@ -63,6 +63,32 @@ JupyterLab Desktop bundles JupyterLab front-end and a conda environment as Jupyt
 
   If JupyterLab Desktop does not find a compatible Python environment configured, it will prompt for installation using JupyterLab Desktop Server installer or let you choose a custom environment on your computer at first launch.
 
+## Testing
+
+Unit tests are Vitest and live in `test/unit`. End-to-end tests are Playwright driving the real Electron app and live in `test/e2e`.
+
+```bash
+yarn test:unit         # vitest run
+yarn test:unit:watch   # vitest, re-runs on change
+yarn test:coverage     # vitest run --coverage, enforces the thresholds below
+yarn test:e2e          # playwright test, requires yarn build first
+```
+
+`yarn test:e2e` launches the built entry point rather than the sources: `package.json` points `main` at `./build/out/main/main.js`, and the tests call `electron.launch` against the project directory. On a clean checkout the run fails on a missing bundle rather than on a real defect, so run `yarn build` before it.
+
+Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules that are unit-testable; the window, view, dialog and preload surfaces are integration code covered by the e2e suite. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
+
+Two more checks run in CI and are worth running before pushing:
+
+```bash
+yarn type-check           # tsc --noEmit
+yarn lint:check           # prettier --check and eslint, no writes
+yarn lint                 # the same two, applying fixes
+yarn check_version_match  # desktop version against the bundled JupyterLab version
+```
+
+Prettier is pinned in `devDependencies` and its config is `.prettierrc`. Running it through `npx` resolves a different major and reports formatting differences that are not real, so use the repo's own binary.
+
 ## Building for distribution
 
 - Build the application

@@ -107,12 +107,12 @@ vi.mock('../../src/main/registry', () => ({ Registry: vi.fn() }));
 
 import {
   addUserSetEnvironment,
+  handleConfigSetCommand,
   handleEnvActivateCommand,
   handleEnvSetCondaChannelsCommand,
   handleEnvSetCondaPathCommand,
   handleEnvSetPythonEnvsPathCommand,
-  handleEnvSetSystemPythonPathCommand,
-  handleConfigSetCommand
+  handleEnvSetSystemPythonPathCommand
 } from '../../src/main/cli';
 import { appData } from '../../src/main/config/appdata';
 import { SettingType, userSettings } from '../../src/main/config/settings';

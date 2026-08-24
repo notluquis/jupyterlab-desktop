@@ -221,10 +221,12 @@ describe('UserSettings', () => {
       const us = new UserSettings(true);
       us.save();
 
-      // These two are for the merge, not for the read: swapping `{ ...onDisk }` for `Object.assign({}, onDisk)` is what makes them fire, since assign sets where spread defines. Measured: with the read walking the file instead of the enum, the test still goes red with both of them deleted, and the assertion below is what catches that one.
+      // Measured one assertion at a time against both mutations, because the first attempt at this comment asserted the opposite and was wrong. Against `read` walking the file instead of the enum, all three fire. Against the merge, `{ ...onDisk }` swapped for `Object.assign({}, onDisk)`, only the round-trip below fires: assign invokes the `__proto__` setter on `merged`, which retargets that object's own prototype and never touches `Object.prototype`, so neither probe sees it.
+      //
+      // These two are the pollution probes, and they are what a future change that writes onto the prototype would trip.
       expect(({} as any).value).toBeUndefined();
       expect(({} as any).pwned).toBeUndefined();
-      // and it is still written back, rather than dropped
+      // This one is the merge guard, and the only assertion here that catches the spread being swapped for assign. It reads as the redundant one next to two prototype checks, which is exactly why it says so.
       const written = (mockFs.writeFileSync as any).mock.calls[0][1] as string;
       expect(written).toContain('__proto__');
     } finally {

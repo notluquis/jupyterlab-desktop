@@ -157,7 +157,7 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
       ? parsed
       : {};
   } catch (error) {
-    // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it this once — EBUSY while an antivirus or backup pass holds it on Windows, EACCES after a permission change, EMFILE under descriptor pressure — and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent, silently and with the write reporting success. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
+    // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it, and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent. The case that actually reaches the write is the parse failure: `userSettings` is constructed once at import, so a user who follows troubleshoot.md and hand-edits settings.json while the app runs, leaving a trailing comma, gets the SyntaxError caught here and will-quit rewrites the file without their edit. An EBUSY or EACCES would fail the writeFileSync below as well, so those throw rather than lose quietly. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
     if (
       (error as NodeJS.ErrnoException)?.code !== 'ENOENT' &&
       !reportedUnreadable.has(filePath)

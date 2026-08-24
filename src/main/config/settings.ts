@@ -4,6 +4,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import {
+  configFileIsUnreadable,
   getUserDataDir,
   getUserHomeDir,
   readJsonConfigFile,
@@ -307,6 +308,11 @@ export class WorkspaceSettings extends UserSettings {
   }
 
   save(): boolean {
+    // A project override is persisted only when it differs from the user value, and the user value comes from the global settings.json. Unreadable, that read yields defaults, so an override that happens to equal a default stops looking like an override and would be dropped from a workspace file that is perfectly readable. Refuse instead: this file's correctness depends on one we could not read, which is the same reason the writer refuses the marked file itself.
+    if (configFileIsUnreadable(UserSettings.getUserSettingsPath())) {
+      return false;
+    }
+
     const wsSettingsPath = WorkspaceSettings.getWorkspaceSettingsPath(
       this._workingDirectory
     );

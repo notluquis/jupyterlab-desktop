@@ -189,4 +189,25 @@ describe('WorkspaceSettings save', () => {
     ws.save();
     expect(mockFs.writeFileSync).not.toHaveBeenCalled();
   });
+
+  // A project override is written only when it differs from the *user* value, and the user value comes from the global settings.json. Marked unreadable, that read yields defaults, so an override that happens to equal the default stops looking like an override and is dropped from a workspace file that was perfectly readable. On master this path never ran, because a corrupt global crashed the app during import.
+  const corruptGlobalAndReadableWorkspace = () => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn((target: any) => {
+      if (String(target).includes('desktop-settings.json')) {
+        return Buffer.from(JSON.stringify({ serverArgs: '' }));
+      }
+      return Buffer.from('{ this is not json');
+    }) as any;
+  };
+
+  it('refuses to rewrite the workspace file when the global one is unreadable', () => {
+    corruptGlobalAndReadableWorkspace();
+
+    const ws = new WorkspaceSettings('/data/nb');
+
+    expect(ws.save()).toBe(false);
+    // the override survives because nothing was written over it
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+  });
 });

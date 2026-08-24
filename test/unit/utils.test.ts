@@ -1025,6 +1025,17 @@ describe('writeJsonConfigFile', () => {
     expect(mockFs.renameSync).not.toHaveBeenCalled();
   });
 
+  // closeSync releases the descriptor even when it reports an error, so the catch must not close the same number again: by then it can belong to a file somebody else just opened. The guard is that fd is cleared before the call.
+  it('does not close the descriptor twice when the close itself fails', () => {
+    mockFs.closeSync = vi.fn(() => {
+      throw new Error('EIO');
+    });
+
+    expect(writeJsonConfigFile('/data/badclose.json', {})).toBe(false);
+    expect(mockFs.closeSync).toHaveBeenCalledTimes(1);
+    expect(mockFs.renameSync).not.toHaveBeenCalled();
+  });
+
   it('carries ownership across when the app is running as root', () => {
     const realGetuid = process.getuid;
     (process as any).getuid = () => 0;

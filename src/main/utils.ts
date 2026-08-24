@@ -156,15 +156,8 @@ export function writeJsonConfigFile(
     existing = statOrUndefined(targetPath);
   }
 
-  // A name nobody can predict, rather than the pid. Two reasons, both taken from write-file-atomic, which hashes the module path, the pid, the thread id and a counter for the same purpose. `process.pid` is not unique inside a worker thread, so it does not actually keep two writers apart; and a predictable name is what makes the planted-symlink race worth defending against at all, so removing the prediction is better than only failing closed on it. The cost, and it is real: a process killed between the open and the rename leaves a temporary nothing will collect, where the pid form left at most one per pid. #1114 carries the sweep. Declared here and built inside the try, because randomBytes throws when the entropy source fails or is unavailable, and this function's callers are documented not to have to catch: will-quit calls it after preventDefault, so a throw escaping here leaves _quit unreached and the app unquittable. The cleanup below is gated on `created`, which cannot be true before the assignment.
-  let tempPath: string | undefined;
-  let fd: number | undefined;
-  // Whether the open below actually created this name. `wx` exists so an entry already there is refused rather than followed, and the cleanup would otherwise delete it anyway, undoing the guard on the one path where it fired.
-  let created = false;
-
+  // Everything below is inside the try because this function's callers are documented not to have to catch: will-quit calls it after preventDefault, so a throw escaping here leaves _quit unreached and the app unquittable. JSON.stringify reaches a getter that can throw, and writeFileAtomicSync rethrows whatever the filesystem raised once it has cleaned up after itself.
   try {
-    // inside the try: a getter that throws would otherwise escape a function whose callers are documented not to have to catch
-    tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
     const contents = JSON.stringify(data, null, 2);
     // recursive is a no-op when the directory is already there, and checking first only opens a race window
     const parent = path.dirname(targetPath);
@@ -177,12 +170,44 @@ export function writeJsonConfigFile(
     if (createdRoot) {
       carryOwnershipOntoPath(createdRoot, parent);
     }
-    // Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces. A new file is 0600 by default: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at. 'umask' is for a file with no secret in it, and it works by leaving the mask alone to narrow openSync's argument, which is what master's writeFileSync did; reading the mask to compute a mode would mean setting it, and process.umask has no read-only form that is not deprecated.
+    // A new file is 0600 by default: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at. 'umask' is for a file with no secret in it, and it works by leaving the mask alone to narrow openSync's argument, which is what master's writeFileSync did; reading the mask to compute a mode would mean setting it, and process.umask has no read-only form that is not deprecated.
     const mode = existing
       ? existing.mode & 0o777
       : newFile === 'private'
       ? 0o600
       : undefined;
+    writeFileAtomicSync(
+      targetPath,
+      contents,
+      mode,
+      existing ?? statOrUndefined(parent)
+    );
+    return true;
+  } catch (error) {
+    log.error(`Failed to write ${filePath}`, error);
+    return false;
+  }
+}
+
+/**
+ * Publish `contents` at `targetPath`, or leave whatever is there untouched and throw.
+ *
+ * Holds no opinion about what the bytes are, which files deserve which mode, or whose config this is: every one of those arrives as an argument. Throws rather than reporting, having removed anything it created first, so the caller decides what a failed save means.
+ */
+function writeFileAtomicSync(
+  targetPath: string,
+  contents: string,
+  mode: number | undefined,
+  owner: fs.Stats | undefined
+): void {
+  // A name nobody can predict, rather than the pid. Two reasons, both taken from write-file-atomic, which hashes the module path, the pid, the thread id and a counter for the same purpose. `process.pid` is not unique inside a worker thread, so it does not actually keep two writers apart; and a predictable name is what makes the planted-symlink race worth defending against at all, so removing the prediction is better than only failing closed on it. The cost, and it is real: a process killed between the open and the rename leaves a temporary nothing will collect, where the pid form left at most one per pid. #1114 carries the sweep. Declared here and built inside the try because randomBytes throws when the entropy source fails or is unavailable, and the cleanup below is gated on `created`, which cannot be true before the assignment.
+  let tempPath: string | undefined;
+  let fd: number | undefined;
+  // Whether the open below actually created this name. `wx` exists so an entry already there is refused rather than followed, and the cleanup would otherwise delete it anyway, undoing the guard on the one path where it fired.
+  let created = false;
+
+  try {
+    tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
     // 'wx' rather than 'w', so a symlink planted at this name fails the open instead of being followed and truncated. Kept as depth even though the name above is now unpredictable: it costs nothing and it is the property, not the odds, that the comment is about. Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces, which is why the mode argument is not redundant with the fchmod below.
     fd = fs.openSync(tempPath, 'wx', mode ?? 0o666);
     created = true;
@@ -190,7 +215,7 @@ export function writeJsonConfigFile(
       // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
       fs.fchmodSync(fd, mode);
     }
-    carryOwnership(fd, existing ?? statOrUndefined(parent));
+    carryOwnership(fd, owner);
     fs.writeFileSync(fd, contents);
     // rename publishes the name, not the bytes: without this a power cut can leave a good filename on an empty file
     try {
@@ -201,7 +226,7 @@ export function writeJsonConfigFile(
         throw error;
       }
       log.debug(
-        `Could not flush ${filePath}, the filesystem does not implement it`,
+        `Could not flush ${targetPath}, the filesystem does not implement it`,
         error
       );
     }
@@ -211,7 +236,6 @@ export function writeJsonConfigFile(
     fs.closeSync(toClose);
     fs.renameSync(tempPath, targetPath);
     syncDirectoryEntry(targetPath);
-    return true;
   } catch (error) {
     closeQuietly(fd);
     try {
@@ -221,8 +245,7 @@ export function writeJsonConfigFile(
     } catch {
       // it may never have been created
     }
-    log.error(`Failed to write ${filePath}`, error);
-    return false;
+    throw error;
   }
 }
 

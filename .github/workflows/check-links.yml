@@ -1,5 +1,4 @@
-# Link rot in the documentation, found before a reader finds it.
-# Uses the organisation's own action, the same one jupyterlab/jupyterlab runs.
+# Link rot in the documentation, found before a reader finds it. Uses the organisation's own action, the same one jupyterlab/jupyterlab runs.
 name: External Link Audit
 
 on:
@@ -8,8 +7,7 @@ on:
   pull_request:
     branches: [master]
   schedule:
-    # Weekly: link rot happens over time, so a pull request trigger alone would never
-    # see a link that died after it merged.
+    # Weekly: link rot happens over time, so a pull request trigger alone would never see a link that died after it merged.
     - cron: '17 6 * * 1'
   workflow_dispatch:
 
@@ -18,13 +16,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  # Only a superseded pull request run is worth cancelling: keyed on the ref alone, a
-  # push to master would cancel the weekly run, and a cancelled run is grey, not red.
+  # Only a superseded pull request run is worth cancelling: keyed on the ref alone, a push to master would cancel the weekly run, and a cancelled run is grey, not red.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# No change-detection job, unlike jupyterlab's: theirs builds the docs first, this
-# audit is 25 seconds, and gating on `https?://` would skip broken relative links,
-# which are most of them here. See the pull request for the counts.
+# No change-detection job, unlike jupyterlab's: theirs builds the docs first, this audit is 25 seconds, and gating on `https?://` would skip broken relative links, which are most of them here. See the pull request for the counts.
 jobs:
   audit:
     name: Audit external links
@@ -36,10 +31,7 @@ jobs:
           persist-credentials: false
       - uses: jupyterlab/maintainer-tools/.github/actions/check-links@95d85449e4f3f352e261221f6529f8ed307f5728 # v1
         with:
-          # github.com: the checker GETs each link in full, so the README's
-          # installer links download 2.2 GB per run. blog.jupyter.org: Medium
-          # answers a checker with 403 while the pages load. Both are on
-          # jupyterlab's list for the same reasons.
+          # github.com: the checker GETs each link in full, so the README's installer links download 2.2 GB per run. blog.jupyter.org: Medium answers a checker with 403 while the pages load. Both are on jupyterlab's list for the same reasons.
           ignore_links: >-
             https://github.com/.*
             https://blog.jupyter.org/.*

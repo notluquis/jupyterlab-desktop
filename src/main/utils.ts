@@ -403,6 +403,17 @@ function carryOwnership(fd: number, owner?: fs.Stats): void {
 export function resetConfigFile(filePath: string): boolean {
   const targetPath = resolveConfigPath(filePath);
 
+  // The same refusal the writer makes on the same signal: a link that did not resolve is a cycle, and renaming it aside takes the user's link with it and orphans whatever it pointed at, which is worse than leaving a file nobody can read.
+  if (
+    targetPath === filePath &&
+    statOrUndefined(filePath, fs.lstatSync)?.isSymbolicLink() === true
+  ) {
+    log.error(
+      `Not moving ${filePath} aside, it is a symlink whose target could not be resolved`
+    );
+    return false;
+  }
+
   // a fixed suffix would overwrite the copy kept from an earlier corruption
   let quarantinePath = `${targetPath}.corrupt`;
   for (let n = 1; n <= 20 && fs.existsSync(quarantinePath); n++) {

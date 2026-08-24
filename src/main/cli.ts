@@ -1128,7 +1128,7 @@ export function handleConfigSetCommand(argv: any) {
   );
 }
 
-function handleConfigUnsetCommand(argv: any) {
+export function handleConfigUnsetCommand(argv: any) {
   const parseKey = (): string => {
     if (argv._.length !== 2) {
       console.error(`Invalid setting. Use "unset <settingKey>" format.`);

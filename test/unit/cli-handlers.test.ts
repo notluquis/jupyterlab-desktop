@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 
+// Hoisted, because a vi.mock factory runs above every const. Hard-coding the workspace save to false left the --project success branch unreachable and the suite green whichever way it went.
+const ws = vi.hoisted(() => ({ saveResult: true }));
+
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
@@ -52,10 +55,15 @@ vi.mock('../../src/main/config/settings', () => ({
     getUserSettingsPath: vi.fn(() => '/tmp/jlab-test/settings.json')
   }),
   resolveWorkingDirectory: vi.fn((dir: string) => dir),
+
   // an arrow function cannot be used with `new`, and a bare vi.fn() constructs an object with none of the methods the handler calls
   WorkspaceSettings: Object.assign(
     vi.fn().mockImplementation(function () {
-      return { setValue: vi.fn(), save: vi.fn(() => false) };
+      return {
+        setValue: vi.fn(),
+        unsetValue: vi.fn(),
+        save: vi.fn(() => ws.saveResult)
+      };
     } as any),
     {
       getWorkspaceSettingsPath: vi.fn(
@@ -108,6 +116,7 @@ vi.mock('../../src/main/registry', () => ({ Registry: vi.fn() }));
 import {
   addUserSetEnvironment,
   handleConfigSetCommand,
+  handleConfigUnsetCommand,
   handleEnvActivateCommand,
   handleEnvSetCondaChannelsCommand,
   handleEnvSetCondaPathCommand,
@@ -124,6 +133,7 @@ const mockFs = vi.mocked(fs);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ws.saveResult = true;
   (appData as any).userSetPythonEnvs = [];
   // save() reports whether the write landed now, and the handlers branch on it
   (appData as any).save = vi.fn(() => true);
@@ -303,6 +313,7 @@ describe('reporting a refused write', () => {
   const refuseSaves = () => {
     (userSettings as any).save = vi.fn(() => false);
     (appData as any).save = vi.fn(() => false);
+    ws.saveResult = false;
   };
 
   // every refusal here ends in process.exit, so the whole block needs it stubbed or the first one takes the worker with it
@@ -400,6 +411,26 @@ describe('reporting a refused write', () => {
 
     try {
       await handleEnvUpdateRegistryCommand({ _: ['update-registry'] });
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      err.mockRestore();
+      out.mockRestore();
+    }
+  });
+
+  // The --project branches of both config handlers: the success one was unreachable because the mock pinned the save to false, and unset was not exported at all.
+  it('reports a project write it could not make, and says so on success', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    mockFs.existsSync = vi.fn(() => true);
+
+    try {
+      handleConfigUnsetCommand({ _: ['unset', 'theme'], project: '/data/nb' });
+      expect(out).toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+
+      refuseSaves();
+      handleConfigUnsetCommand({ _: ['unset', 'theme'], project: '/data/nb' });
       expect(exit).toHaveBeenCalledWith(1);
     } finally {
       err.mockRestore();

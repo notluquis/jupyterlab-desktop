@@ -178,6 +178,19 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     expect(fs.lstatSync(b).isSymbolicLink()).toBe(true);
   });
 
+  // The writer refuses this and the reset did not, so the recovery path would have taken the link the writer had just protected.
+  posixOnly('does not move a symlink cycle aside either', () => {
+    const a = path.join(dir, 'settings.json');
+    const b = path.join(dir, 'b.json');
+    fs.symlinkSync(b, a);
+    fs.symlinkSync(a, b);
+
+    expect(resetConfigFile(a)).toBe(false);
+
+    expect(fs.lstatSync(a).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(dir).filter(n => n.includes('.corrupt'))).toEqual([]);
+  });
+
   posixOnly('creates a config nobody else can read', () => {
     // app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at
     const target = path.join(dir, 'app-data.json');

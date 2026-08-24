@@ -45,8 +45,14 @@ vi.mock('../../src/main/config/settings', () => ({
     condaChannels: 'condaChannels',
     systemPythonPath: 'systemPythonPath'
   },
-  UserSettings: vi.fn(),
-  WorkspaceSettings: vi.fn()
+  UserSettings: Object.assign(vi.fn(), {
+    getUserSettingsPath: vi.fn(() => '/tmp/jlab-test/settings.json')
+  }),
+  WorkspaceSettings: Object.assign(vi.fn(), {
+    getWorkspaceSettingsPath: vi.fn(
+      (dir: string) => `${dir}/.jupyter/desktop-settings.json`
+    )
+  })
 }));
 vi.mock('../../src/main/utils', () => ({
   getBundledPythonPath: vi.fn(() => '/bundled/python'),
@@ -57,6 +63,8 @@ vi.mock('../../src/main/utils', () => ({
   envPathForPythonPath: vi.fn((pythonPath: string) =>
     pythonPath.replace('/bin/python', '')
   ),
+  configFileIsUnreadable: vi.fn(() => false),
+  resolveWorkingDirectory: vi.fn((dir: string) => dir),
   createCommandScriptInEnv: vi.fn(),
   createTempFile: vi.fn(),
   installCondaPackEnvironment: vi.fn(),
@@ -99,6 +107,7 @@ import {
 import { appData } from '../../src/main/config/appdata';
 import { SettingType, userSettings } from '../../src/main/config/settings';
 import * as envModule from '../../src/main/env';
+import * as utilsModule from '../../src/main/utils';
 
 const mockFs = vi.mocked(fs);
 
@@ -274,6 +283,55 @@ describe('handleEnvSetSystemPythonPathCommand', () => {
     expect(spy).toHaveBeenCalledWith('Please set a valid Python path');
     expect(userSettings.setValue).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+// Every one of these branches was unreachable: no test set save() to false, so the suite
+// stayed green without running a line of the reporting the pull request is about, and the
+// module mocks would have died on a TypeError before the first assertion if one had.
+describe('reporting a refused write', () => {
+  const refuseSaves = () => {
+    (userSettings as any).save = vi.fn(() => false);
+    (appData as any).save = vi.fn(() => false);
+  };
+
+  it('says the file could not be written, and does not claim success', async () => {
+    refuseSaves();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    mockFs.existsSync = vi.fn(() => true);
+    vi.spyOn(envModule, 'validateCondaPath').mockResolvedValue({ valid: true });
+
+    await handleEnvSetCondaPathCommand({
+      _: ['set-conda-path', '/usr/bin/conda']
+    });
+
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining('Could not write /tmp/jlab-test/settings.json')
+    );
+    expect(out).not.toHaveBeenCalled();
+    err.mockRestore();
+    out.mockRestore();
+  });
+
+  // The read guard and a failed write are different refusals, and only one of them is
+  // something the reader can act on, so they must not print the same sentence.
+  it('points at the unreadable file instead when that is the reason', async () => {
+    refuseSaves();
+    vi.mocked(utilsModule.configFileIsUnreadable).mockReturnValue(true);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFs.existsSync = vi.fn(() => true);
+    vi.spyOn(envModule, 'validateCondaPath').mockResolvedValue({ valid: true });
+
+    await handleEnvSetCondaPathCommand({
+      _: ['set-conda-path', '/usr/bin/conda']
+    });
+
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining('could not be read')
+    );
+    vi.mocked(utilsModule.configFileIsUnreadable).mockReturnValue(false);
+    err.mockRestore();
   });
 });
 

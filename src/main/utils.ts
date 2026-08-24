@@ -157,7 +157,7 @@ export function writeJsonConfigFile(filePath: string, data: unknown): boolean {
     fd = openExclusive(tempPath, mode);
     // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
     fs.fchmodSync(fd, mode);
-    carryOwnership(fd, existing);
+    carryOwnership(fd, existing ?? statOrUndefined(path.dirname(targetPath)));
     fs.writeFileSync(fd, contents);
     // rename publishes the name, not the bytes: without this a power cut can leave a good filename on an empty file
     fs.fsyncSync(fd);
@@ -292,14 +292,16 @@ function openExclusive(tempPath: string, mode: number): number {
 
 /**
  * A run as root would otherwise leave the config owned by root and the user unable to write their own settings again. write-file-atomic and atomically both carry the owner across for the same reason. Through the descriptor, since the path form follows a symlink and would hand away whatever it names.
+ *
+ * With no file to copy from, the containing directory is the owner to match: `sudo jlab` on a config that does not exist yet would otherwise create it root:root and lock every later unprivileged run out of its own settings, which is the case this function exists to prevent. Where the directory is genuinely root's, as under a sudo that also moved HOME, root:root is what it already says and nothing changes.
  */
-function carryOwnership(fd: number, existing?: fs.Stats): void {
-  if (!existing || process.getuid?.() !== 0) {
+function carryOwnership(fd: number, owner?: fs.Stats): void {
+  if (!owner || process.getuid?.() !== 0) {
     return;
   }
 
   try {
-    fs.fchownSync(fd, existing.uid, existing.gid);
+    fs.fchownSync(fd, owner.uid, owner.gid);
   } catch (error) {
     log.error('Failed to carry ownership onto the new config', error);
   }

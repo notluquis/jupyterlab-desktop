@@ -1028,6 +1028,30 @@ describe('writeJsonConfigFile', () => {
     expect(mockFs.fchownSync).toHaveBeenCalledWith(7, 501, 20);
   });
 
+  // The lockout this function exists to prevent, in the case it used to return early on: `sudo jlab` with no config yet. Without an existing file to copy from, the containing directory is what the new file has to match, or every later unprivileged run gets EACCES on its own settings.
+  it('carries the directory owner when the file does not exist yet', () => {
+    const realGetuid = process.getuid;
+    (process as any).getuid = () => 0;
+    // nothing at the path: statOrUndefined returns undefined for the file and the stats for its directory
+    mockFs.lstatSync = vi.fn(() => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }) as any;
+    mockFs.statSync = vi.fn((target: string) => {
+      if (target === path.dirname(path.resolve('/data/fresh.json'))) {
+        return { uid: 501, gid: 20, mode: 0o40755 } as any;
+      }
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }) as any;
+
+    try {
+      writeJsonConfigFile('/data/fresh.json', {});
+    } finally {
+      (process as any).getuid = realGetuid;
+    }
+
+    expect(mockFs.fchownSync).toHaveBeenCalledWith(7, 501, 20);
+  });
+
   it('leaves ownership alone when the app is not root', () => {
     const realGetuid = process.getuid;
     (process as any).getuid = () => 501;

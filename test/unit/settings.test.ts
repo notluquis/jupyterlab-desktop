@@ -350,6 +350,39 @@ describe('UserSettings', () => {
     expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
   });
 
+  // Two breakages of the same file are two different things to repair, and the mark used to remember only that the path had been reported, so the second stayed silent with the first one's wording standing in the log. The repaired-and-broke-again test above does not cover this: it puts a valid object between the two, which clears the mark for the wrong reason.
+  const breakages = (shapes: string[]) => {
+    mockFs.existsSync = vi.fn(() => true);
+    let n = 0;
+    mockFs.readFileSync = vi.fn(() => {
+      const shape = shapes[n++] ?? '{}';
+      if (shape === 'GONE') {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }
+      return Buffer.from(shape);
+    }) as any;
+    mockFs.writeFileSync = vi.fn();
+    // one shape is consumed by the constructor, the rest by a save each
+    const us = new UserSettings(true);
+    for (let i = 1; i < shapes.length; i++) {
+      us.save();
+    }
+    return vi.mocked(log.error).mock.calls.length;
+  };
+
+  it('reports a parse failure and then a rejected shape', () => {
+    expect(breakages(['{"a":1}', 'nope', '[1,2,3]'])).toBe(2);
+  });
+
+  it('reports a rejected shape and then a parse failure', () => {
+    expect(breakages(['{"a":1}', '[1,2,3]', 'nope'])).toBe(2);
+  });
+
+  // The file going away is not a repair, but whatever was reported about it no longer describes anything.
+  it('reports again after the file disappeared in between', () => {
+    expect(breakages(['{"a":1}', 'nope', 'GONE', 'nope'])).toBe(2);
+  });
+
   it('says nothing when the file is simply absent', () => {
     mockFs.existsSync = vi.fn(() => false);
     mockFs.readFileSync = vi.fn(() => {

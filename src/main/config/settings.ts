@@ -138,17 +138,36 @@ export namespace Setting {
 }
 
 // Reported once per path per run. Eighteen call sites reach save(), so a condition that persists, an antivirus pass holding the file, a permission that stayed wrong, would otherwise put the same line in the log on every settings change, which is the reason this repository already gives for leaving the directory flush at debug.
-const reportedUnreadable = new Set<string>();
+const reportedUnreadable = new Map<string, 'unreadable' | 'shape'>();
 
 /** Say once per path that the file was there and unusable, and give back the empty object the caller merges over. */
 function reportRejected(filePath: string): { [key: string]: any } {
-  if (!reportedUnreadable.has(filePath)) {
-    reportedUnreadable.add(filePath);
-    log.error(
-      `${filePath} holds no JSON object, so keys this build does not know may be dropped from it`
-    );
-  }
+  reportOnce(
+    filePath,
+    'shape',
+    `${filePath} holds no JSON object, so keys this build does not know may be dropped from it`
+  );
   return {};
+}
+
+/**
+ * Say it once per path, and again when the file breaks a different way. Keyed by kind rather than by path alone: a file that fails to parse and then comes back as an array is two different things to repair, and remembering only that "this path was reported" left the second one silent with the first one's wording standing in a support log.
+ */
+function reportOnce(
+  filePath: string,
+  kind: 'unreadable' | 'shape',
+  message: string,
+  error?: unknown
+): void {
+  if (reportedUnreadable.get(filePath) === kind) {
+    return;
+  }
+  reportedUnreadable.set(filePath, kind);
+  if (error === undefined) {
+    log.error(message);
+  } else {
+    log.error(message, error);
+  }
 }
 
 /** Only for tests: the set above outlives them otherwise, and the second one to run reads as silent because the first already reported. */
@@ -174,16 +193,17 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
     return parsed;
   } catch (error) {
     // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it, and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent. The case that actually reaches the write is the parse failure: `userSettings` is constructed once at import, so a user who follows troubleshoot.md and hand-edits settings.json while the app runs, leaving a trailing comma, gets the SyntaxError caught here and will-quit rewrites the file without their edit. An EBUSY or EACCES would fail the writeFileSync below as well, so those throw rather than lose quietly. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
-    if (
-      (error as NodeJS.ErrnoException)?.code !== 'ENOENT' &&
-      !reportedUnreadable.has(filePath)
-    ) {
-      reportedUnreadable.add(filePath);
-      log.error(
-        `Could not read ${filePath}, so keys this build does not know may be dropped from it`,
-        error
-      );
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      // gone rather than broken, so whatever was reported about it no longer describes anything
+      reportedUnreadable.delete(filePath);
+      return {};
     }
+    reportOnce(
+      filePath,
+      'unreadable',
+      `Could not read ${filePath}, so keys this build does not know may be dropped from it`,
+      error
+    );
     return {};
   }
 }

@@ -102,8 +102,8 @@ export function readJsonConfigFile(
   // Only the tail. Stripping NUL everywhere also closes a hole torn in the middle: `{"a":1,"b":2` + NULs + `}` becomes valid JSON holding a value nobody wrote, and the next save persists it as though it were the user's.
   const text = trimTrailingNuls(contents);
 
-  // nothing worth protecting in an empty one, so it is not marked
-  if (text.trim() === '') {
+  // nothing worth protecting in an empty one, so it is not marked. NUL counts as nothing here even though the trim above leaves it alone: '\0\0\0' and '\0\0\0\n' are the same torn file, and testing with String.trim gave them opposite outcomes because it treats NUL as content. This decides whether there is anything to protect, not what to parse, so it cannot resurrect a file torn in the middle.
+  if (isBlank(text)) {
     return undefined;
   }
 
@@ -209,7 +209,11 @@ function decodeConfig(buffer: Buffer): string {
   }
   if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
     // Node has no utf16be, so swap the pairs and read it as little endian. Notepad calls this one "Unicode big endian" and Out-File takes it as BigEndianUnicode; leaving it out marks the file and refuses every write to it from then on, which is worse than any of the shapes above.
-    return Buffer.from(buffer.subarray(2)).swap16().toString('utf16le');
+    const body = buffer.subarray(2);
+    // swap16 throws on an odd length, and a truncated file is exactly that: the trailing half of a code unit is dropped so the rest still decodes, rather than the whole file being marked unreadable over one byte.
+    const pairs =
+      body.length % 2 === 0 ? body : body.subarray(0, body.length - 1);
+    return Buffer.from(pairs).swap16().toString('utf16le');
   }
   if (buffer.length >= 3 && buffer.subarray(0, 3).equals(UTF8_BOM)) {
     return buffer.subarray(3).toString();
@@ -220,6 +224,19 @@ function decodeConfig(buffer: Buffer): string {
 /**
  * `contents` without the NULs at its end. A scan rather than `replace(/\0+$/, '')`, whose anchor retries from every position when the run is followed by anything else, which is what a file torn in the middle is. This runs while the config modules are still importing, so the cost lands before any window: 214 ms at 20 KB of interior NULs, 3.2 s at 80, 22.7 s at 200.
  */
+/**
+ * Whether `contents` holds anything a user would recognise as content. NUL and whitespace both count as nothing; every other code point counts.
+ */
+function isBlank(contents: string): boolean {
+  for (let i = 0; i < contents.length; i++) {
+    const code = contents.charCodeAt(i);
+    if (code !== 0 && !/\s/.test(contents[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function trimTrailingNuls(contents: string): string {
   let end = contents.length;
   while (end > 0 && contents.charCodeAt(end - 1) === 0) {

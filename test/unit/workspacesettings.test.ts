@@ -15,7 +15,7 @@ vi.mock('fs', async () => {
     mkdirSync: vi.fn(),
     renameSync: vi.fn(),
     realpathSync: vi.fn((target: any) => target),
-    chownSync: vi.fn(),
+    fchownSync: vi.fn(),
     fchmodSync: vi.fn(),
     openSync: vi.fn(() => 7),
     fsyncSync: vi.fn(),
@@ -157,7 +157,7 @@ describe('WorkspaceSettings save', () => {
     mockFs.statSync = vi.fn(() => {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     }) as any;
-    mockFs.chownSync = vi.fn();
+    mockFs.fchownSync = vi.fn();
     mockFs.fchmodSync = vi.fn();
     mockFs.openSync = vi.fn(() => 7) as any;
     mockFs.fsyncSync = vi.fn();

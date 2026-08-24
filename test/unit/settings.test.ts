@@ -14,7 +14,7 @@ vi.mock('fs', async () => {
     }),
     renameSync: vi.fn(),
     realpathSync: vi.fn((target: any) => target),
-    chownSync: vi.fn(),
+    fchownSync: vi.fn(),
     fchmodSync: vi.fn(),
     openSync: vi.fn(() => 7),
     fsyncSync: vi.fn(),
@@ -58,7 +58,7 @@ beforeEach(() => {
   mockFs.statSync = vi.fn(() => {
     throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
   }) as any;
-  mockFs.chownSync = vi.fn();
+  mockFs.fchownSync = vi.fn();
   mockFs.fchmodSync = vi.fn();
   // the config write goes to a sibling temporary and is renamed over the target, so these three stand between save() and the real filesystem
   mockFs.openSync = vi.fn(() => 7) as any;

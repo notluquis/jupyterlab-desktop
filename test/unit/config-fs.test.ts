@@ -279,6 +279,19 @@ describe('readJsonConfigFile on a real filesystem', () => {
     expect(writeJsonConfigFile(target, { theme: 'dark' })).toBe(true);
   });
 
+  // The same torn file with one byte more. The tail trim leaves the newline in place, and String.trim does not treat NUL as whitespace, so this used to reach JSON.parse and be marked while the case above was not.
+  it('treats NUL padding ending in a newline as absent too', () => {
+    const target = path.join(dir, 'settings.json');
+    fs.writeFileSync(
+      target,
+      Buffer.concat([Buffer.alloc(64), Buffer.from('\n')])
+    );
+
+    expect(readJsonConfigFile(target)).toBeUndefined();
+    expect(getUnreadableConfigFiles()).not.toContain(target);
+    expect(writeJsonConfigFile(target, { theme: 'dark' })).toBe(true);
+  });
+
   it('reads JSON a crash left padded with NUL rather than marking it', () => {
     const target = path.join(dir, 'settings.json');
     const json = '{"theme":"dark"}';
@@ -301,6 +314,21 @@ describe('readJsonConfigFile on a real filesystem', () => {
     );
 
     // Notepad calls it "Unicode big endian"; decoded as UTF-8 the mark becomes replacement characters and the file is marked, which refuses every write to it from then on
+    expect(readJsonConfigFile(target)).toEqual({ theme: 'dark' });
+    expect(getUnreadableConfigFiles()).not.toContain(target);
+  });
+
+  // swap16 needs a whole number of code units, so a big-endian file cut mid-character threw a RangeError out of the decode and the file was marked, which refuses every write to it from then on.
+  it('reads a UTF-16 big endian file truncated mid-character', () => {
+    const target = path.join(dir, 'settings.json');
+    const le = Buffer.from('{"theme":"dark"}', 'utf16le');
+    const be = Buffer.concat([
+      Buffer.from([0xfe, 0xff]),
+      Buffer.from(le).swap16()
+    ]);
+    // one byte of the next code unit reached disk and its pair did not
+    fs.writeFileSync(target, Buffer.concat([be, Buffer.from([0x00])]));
+
     expect(readJsonConfigFile(target)).toEqual({ theme: 'dark' });
     expect(getUnreadableConfigFiles()).not.toContain(target);
   });

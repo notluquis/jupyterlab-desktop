@@ -24,7 +24,6 @@ vi.mock('fs', async () => {
     readFileSync: vi.fn(),
     renameSync: vi.fn(),
     realpathSync: vi.fn(),
-    chownSync: vi.fn(),
     fchownSync: vi.fn(),
     fchmodSync: vi.fn()
   };
@@ -118,7 +117,6 @@ beforeEach(() => {
   mockFs.closeSync = vi.fn();
   mockFs.unlinkSync = vi.fn();
   mockFs.realpathSync = vi.fn();
-  mockFs.chownSync = vi.fn();
   mockFs.fchownSync = vi.fn();
   mockFs.fchmodSync = vi.fn();
 });
@@ -963,7 +961,6 @@ describe('writeJsonConfigFile', () => {
     mockFs.realpathSync = vi.fn(enoent) as any;
     mockFs.statSync = vi.fn(enoent) as any;
     mockFs.lstatSync = vi.fn(enoent) as any;
-    mockFs.chownSync = vi.fn();
     mockFs.fchownSync = vi.fn();
     mockFs.fchmodSync = vi.fn();
   });
@@ -1184,7 +1181,6 @@ describe('resetConfigFile', () => {
     mockFs.realpathSync = vi.fn(enoent) as any;
     mockFs.statSync = vi.fn(enoent) as any;
     mockFs.lstatSync = vi.fn(enoent) as any;
-    mockFs.chownSync = vi.fn();
     mockFs.fchownSync = vi.fn();
   });
 

@@ -8,6 +8,7 @@ import {
   getUnreadableConfigFiles,
   readJsonConfigFile,
   resetConfigFile,
+  umaskFileMode,
   writeJsonConfigFile
 } from '../../src/main/utils';
 
@@ -155,6 +156,18 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     expect(writeJsonConfigFile(target, { recentRemoteURLs: [] })).toBe(true);
 
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+  });
+
+  // The 0600 default is argued from app-data.json's tokens, and that argument does not reach a project's .jupyter/desktop-settings.json, which master created at the umask default. A project directory shared between two accounts is a real place for it to be, and 0600 locks the second one out of its own workspace settings for the session.
+  posixOnly('creates a file without a secret at the umask default', () => {
+    const target = path.join(dir, 'desktop-settings.json');
+
+    expect(
+      writeJsonConfigFile(target, { uiMode: 'zen' }, umaskFileMode())
+    ).toBe(true);
+
+    expect(fs.statSync(target).mode & 0o777).toBe(umaskFileMode());
+    expect(fs.statSync(target).mode & 0o777).not.toBe(0o600);
   });
 
   it('cleans up its temporary when the rename cannot happen', () => {

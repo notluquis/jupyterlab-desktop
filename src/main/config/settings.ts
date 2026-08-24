@@ -8,6 +8,7 @@ import {
   getUserDataDir,
   getUserHomeDir,
   readJsonConfigFile,
+  umaskFileMode,
   writeJsonConfigFile
 } from '../utils';
 
@@ -335,7 +336,8 @@ export class WorkspaceSettings extends UserSettings {
     // Write when there is something to persist, or when a previous file needs
     // to be cleared. The directory is created by the writer.
     if (Object.keys(wsSettings).length > 0 || fs.existsSync(wsSettingsPath)) {
-      return writeJsonConfigFile(wsSettingsPath, wsSettings);
+      // The umask default rather than 0600: this one lives in the user's project, not in the app's own directory, it holds no token, and a project directory shared between two accounts is a real place for it to be. master created it this way.
+      return writeJsonConfigFile(wsSettingsPath, wsSettings, umaskFileMode());
     }
 
     return true;

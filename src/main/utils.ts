@@ -129,7 +129,23 @@ export function readJsonConfigFile(
  *
  * Reports failure rather than throwing, since will-quit calls this between preventDefault and quit.
  */
-export function writeJsonConfigFile(filePath: string, data: unknown): boolean {
+export function umaskFileMode(): number {
+  try {
+    // reading it back is the only way to ask; setting it to what it already is leaves it alone
+    const mask = process.umask(0o022);
+    process.umask(mask);
+    return 0o666 & ~mask;
+  } catch {
+    // process.umask throws in a worker thread, and the pool here is not pinned
+    return 0o644;
+  }
+}
+
+export function writeJsonConfigFile(
+  filePath: string,
+  data: unknown,
+  newFileMode: number = 0o600
+): boolean {
   if (unreadableConfigFiles.has(filePath)) {
     log.error(`Not writing ${filePath}, it could not be read this session`);
     return false;
@@ -152,8 +168,8 @@ export function writeJsonConfigFile(filePath: string, data: unknown): boolean {
     const contents = JSON.stringify(data, null, 2);
     // recursive is a no-op when the directory is already there, and checking first only opens a race window
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    // Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces, and 0600 when there is nothing to carry: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at.
-    const mode = existing ? existing.mode & 0o777 : 0o600;
+    // Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces. The default for a new file is 0600: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at. A caller writing somewhere without a secret in it passes the umask default instead, which is what master created those at.
+    const mode = existing ? existing.mode & 0o777 : newFileMode;
     fd = openExclusive(tempPath, mode);
     // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
     fs.fchmodSync(fd, mode);

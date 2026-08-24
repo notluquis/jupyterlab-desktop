@@ -23,72 +23,16 @@ concurrency:
   # grey rather than red, so the skipped week would pass unnoticed.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# jupyterlab/jupyterlab puts a job in front of this one that skips the audit
+# when no changed line contains a URL. That is worth a second runner there,
+# where the audit builds the docs first and takes minutes. Here it is 25
+# seconds, and the gate would cost more than it saves: measured over the seven
+# audited files, 65 of the anchors are relative or local against 8 external
+# ones, and a broken relative link changes no line containing a URL — so the
+# gate would skip exactly the majority case and let it surface on master.
 jobs:
-  should_audit:
-    name: Check for external link changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      run_audit: ${{ steps.decide.outputs.run_audit }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.event_name == 'pull_request'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      # A pull request that changed no line containing a URL has nothing to
-      # audit, and a markdown change that touched no link has nothing either,
-      # which a `paths:` filter cannot tell apart.
-      #
-      # Known gap: the checker also validates relative links, and a rename of
-      # something a document points at — an image, a lock file — changes no line
-      # with a URL in it, so it passes here and surfaces on the push run against
-      # master instead.
-      - id: decide
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
-            echo "run_audit=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          base_sha="$BASE_SHA"
-          head_sha="$HEAD_SHA"
-          # A merge-commit checkout does not always have the pull request's own
-          # SHAs reachable. Upstream carries this fallback; without it git exits
-          # 128 and the check goes red for a reason unrelated to any link.
-          if ! git cat-file -e "${base_sha}^{commit}" || ! git cat-file -e "${head_sha}^{commit}"; then
-            if git cat-file -e "HEAD^1^{commit}" && git cat-file -e "HEAD^2^{commit}"; then
-              base_sha="HEAD^1"
-              head_sha="HEAD^2"
-            else
-              echo "Unable to inspect the pull request commits; auditing anyway."
-              echo "run_audit=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          # Scoped to the file types check_links.py reads. Without the pathspec,
-          # yarn.lock alone carries hundreds of registry URLs, so every
-          # dependency bump would run a full audit over documentation it did not
-          # touch.
-          if git diff --quiet --no-ext-diff --diff-filter=ACMRTD -G'https?://' \
-               "$base_sha" "$head_sha" -- '*.md' '*.rst' '*.ipynb'; then
-            echo "run_audit=false" >> "$GITHUB_OUTPUT"
-          else
-            status=$?
-            [[ "$status" == "1" ]] || exit "$status"
-            echo "run_audit=true" >> "$GITHUB_OUTPUT"
-          fi
-
   audit:
     name: Audit external links
-    needs: should_audit
-    if: needs.should_audit.outputs.run_audit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -104,23 +48,23 @@ jobs:
           #   github.com       the checker validates a link with a full GET, no
           #                    HEAD and no streaming, so the five installer links
           #                    in the README download 2.2 GB per run and cache
-          #                    it. Ignoring the host also keeps 30 unauthenticated
+          #                    it. Ignoring the host also keeps 18 unauthenticated
           #                    fetches away from the anonymous rate limit, which
           #                    matters because this check blocks.
           #   blog.jupyter.org on Medium, which answers a checker with 403 while
           #                    the pages themselves load. Measured on a run
           #                    without it: all six came back 403.
           #
-          # What is left audited, counted on master: nine links across six
-          # hosts — snapcraft.io, docs.conda.io, conda.github.io, readthedocs,
-          # nodejs.org, support.microsoft.com. #1121 adds shields.io, discourse
-          # and jupyter.org to that set. docs.conda.io is on jupyterlab's ignore
-          # list and is not on this one, because both of its links answered 200
-          # when measured; if it turns flaky it belongs here.
+          # Counted on master as the checker sees them, rendered anchors rather
+          # than text: 8 external links across 5 hosts stay audited —
+          # snapcraft.io, docs.conda.io, conda.github.io, readthedocs and
+          # support.microsoft.com — plus the 65 relative ones. docs.conda.io is
+          # on jupyterlab's ignore list and not on this one, because both of its
+          # links answered 200 when measured; if it turns flaky it belongs here.
           #
-          # Second known gap: check_links.py globs `**/*.md`, and Python's glob
-          # skips dot-directories, so nothing under .github is ever audited —
-          # the pull request and issue templates included.
+          # Known gap: check_links.py globs `**/*.md`, and Python's glob skips
+          # dot-directories, so nothing under .github is audited — the pull
+          # request and issue templates included.
           ignore_links: >-
             https://github.com/.*
             https://blog.jupyter.org/.*

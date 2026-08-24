@@ -1117,12 +1117,31 @@ describe('writeJsonConfigFile', () => {
       (process as any).getuid = realGetuid;
     }
 
-    expect(mockFs.chownSync).toHaveBeenCalledWith('/proj/.jupyter', 501, 20);
+    // through a descriptor, not the path: this runs as root over a directory created a moment ago
+    expect(mockFs.fchownSync).toHaveBeenCalledWith(7, 501, 20);
+  });
+
+  // `wx` exists so an entry already at that name is refused rather than followed, and the cleanup would have deleted it anyway, undoing the guard on the one path where it fired. Unreachable against a real filesystem now that the name is random, which is why it is pinned here.
+  it('does not delete what was already at the temporary name', () => {
+    mockFs.openSync = vi.fn(() => {
+      throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+    }) as any;
+
+    expect(writeJsonConfigFile('/data/collide.json', {})).toBe(false);
+
+    expect(mockFs.unlinkSync).not.toHaveBeenCalled();
   });
 
   it('follows a dangling link to the path it names', () => {
     mockFs.lstatSync = vi.fn(() => ({ isSymbolicLink: () => true })) as any;
-    mockFs.readlinkSync = vi.fn(() => '/dotfiles/settings.json') as any;
+    // one hop, then the target is not itself a link, which is what a real dangling link gives: readlink on it raises EINVAL
+    let hops = 0;
+    mockFs.readlinkSync = vi.fn(() => {
+      if (hops++ === 0) {
+        return '/dotfiles/settings.json';
+      }
+      throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
+    }) as any;
 
     expect(writeJsonConfigFile('/data/dangling.json', {})).toBe(true);
 

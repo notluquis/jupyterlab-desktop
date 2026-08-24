@@ -165,6 +165,19 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     });
   });
 
+  // A cycle is the only way to exhaust the hop cap, and returning whichever link we were holding would rename a regular file over it, destroying the structure the resolver exists to keep.
+  posixOnly('leaves a symlink cycle alone rather than writing into it', () => {
+    const a = path.join(dir, 'settings.json');
+    const b = path.join(dir, 'b.json');
+    fs.symlinkSync(b, a);
+    fs.symlinkSync(a, b);
+
+    expect(writeJsonConfigFile(a, { theme: 'dark' })).toBe(false);
+
+    expect(fs.lstatSync(a).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(b).isSymbolicLink()).toBe(true);
+  });
+
   posixOnly('creates a config nobody else can read', () => {
     // app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at
     const target = path.join(dir, 'app-data.json');

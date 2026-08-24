@@ -146,12 +146,21 @@ export function writeJsonConfigFile(
   const followedLink = existing?.isSymbolicLink() === true;
   if (followedLink) {
     targetPath = resolveConfigPath(filePath);
+    // Unchanged means the resolver gave up, which on a link can only be a cycle. Writing would rename a regular file over the link and destroy the structure the resolver exists to keep, so refuse instead and let the user see it in the log.
+    if (targetPath === filePath) {
+      log.error(
+        `Not writing ${filePath}, it is a symlink whose target could not be resolved`
+      );
+      return false;
+    }
     existing = statOrUndefined(targetPath);
   }
 
   // A name nobody can predict, rather than the pid. Two reasons, both taken from write-file-atomic, which hashes the module path, the pid, the thread id and a counter for the same purpose. `process.pid` is not unique inside a worker thread, so it does not actually keep two writers apart; and a predictable name is what makes the planted-symlink race worth defending against at all, so removing the prediction is better than only failing closed on it. The cost, and it is real: a process killed between the open and the rename leaves a temporary nothing will collect, where the pid form left at most one per pid. #1114 carries the sweep.
   const tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
   let fd: number | undefined;
+  // Whether the open below actually created this name. `wx` exists so an entry already there is refused rather than followed, and the cleanup would otherwise delete it anyway, undoing the guard on the one path where it fired.
+  let created = false;
 
   try {
     // inside the try: a getter that throws would otherwise escape a function whose callers are documented not to have to catch
@@ -175,6 +184,7 @@ export function writeJsonConfigFile(
       : undefined;
     // 'wx' rather than 'w', so a symlink planted at this name fails the open instead of being followed and truncated. Kept as depth even though the name above is now unpredictable: it costs nothing and it is the property, not the odds, that the comment is about. Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces, which is why the mode argument is not redundant with the fchmod below.
     fd = fs.openSync(tempPath, 'wx', mode ?? 0o666);
+    created = true;
     if (mode !== undefined) {
       // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
       fs.fchmodSync(fd, mode);
@@ -204,7 +214,9 @@ export function writeJsonConfigFile(
   } catch (error) {
     closeQuietly(fd);
     try {
-      fs.unlinkSync(tempPath);
+      if (created) {
+        fs.unlinkSync(tempPath);
+      }
     } catch {
       // it may never have been created
     }
@@ -319,7 +331,8 @@ function resolveConfigPath(filePath: string): string {
         return resolved;
       }
     }
-    return resolved;
+    // A cycle, `a -> b -> a`, is the only way to reach here. Returning the link we happen to be holding would rename a regular file over it and destroy part of the user's structure, which is what this function exists to prevent, so leave the path alone and let the write fail on it instead.
+    return filePath;
   }
 }
 
@@ -349,10 +362,15 @@ function carryOwnershipOntoPath(createdRoot: string, leaf: string): void {
   }
 
   for (let dir = leaf; dir.startsWith(createdRoot); dir = path.dirname(dir)) {
+    // Through a descriptor, for the same reason carryOwnership gives below: the path form follows a symlink, and this runs as root over directories that were created a moment ago, so between the mkdir and here somebody who can write the parent could swap one for a link and have root chown whatever it names.
+    let dirFd: number | undefined;
     try {
-      fs.chownSync(dir, owner.uid, owner.gid);
+      dirFd = fs.openSync(dir, 'r');
+      fs.fchownSync(dirFd, owner.uid, owner.gid);
     } catch (error) {
       log.error(`Failed to carry ownership onto ${dir}`, error);
+    } finally {
+      closeQuietly(dirFd);
     }
     if (dir === createdRoot) {
       break;

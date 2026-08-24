@@ -92,13 +92,19 @@ It also needs a Python with JupyterLab, pointed at by `JLAB_TEST_PYTHON_PATH`. W
 
 ```bash
 python3 -m venv /tmp/jlab-venv
-/tmp/jlab-venv/bin/pip install jupyterlab ipywidgets
+# the same pin the app bundles, which is what CI installs
+ver=$(awk '$1=="-" && $2=="jupyterlab" {print $3}' env_installer/jlab_server.yaml)
+/tmp/jlab-venv/bin/pip install "jupyterlab==$ver" ipywidgets
 export JLAB_TEST_PYTHON_PATH=/tmp/jlab-venv/bin/python
 ```
 
-On Linux, Playwright also needs its system libraries: `npx playwright install-deps`.
+Installing an unpinned JupyterLab works until it drifts from the bundled one, at which point the failure is version skew that CI cannot reproduce.
 
-Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules, and leaves out the window, view, dialog and preload surfaces so that code a unit test cannot reach without a running Electron process does not dilute the denominator. Being outside the list is not the same as being untested: `test/unit/preload` alone holds twelve specs, and several of those surfaces have unit tests of their own. It only means no coverage floor is enforced on them. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
+On Linux, Playwright needs its system libraries, and the app needs a display: `npx playwright install-deps`, then run the suite under `xvfb-run -a`. The app opens several windows, so a real display beats headless. macOS runners have one already.
+
+Coverage is configured in `vitest.config.ts` with an explicit `include` list, which is what makes untested branches in those files count against the thresholds even when no test imports them: Vitest instruments every file the list matches, not only the ones a test reached. The list is scoped to the main-process logic modules, and leaves out the window, view, dialog and preload surfaces so that code a unit test cannot reach without a running Electron process does not dilute the denominator. Being outside the list is not the same as being untested: `test/unit/preload` alone holds twelve specs, and several of those surfaces have unit tests of their own. It only means no coverage floor is enforced on them. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
+
+The unit suite runs in CI as well: `publish.yml` runs `yarn test:coverage` on Linux, where the thresholds are enforced, and `yarn test:unit` on macOS and Windows, and its `publish` job is `needs: test`. A regressed threshold turns up there rather than here if you skip it.
 
 Three more checks run in CI and are worth running before pushing:
 
@@ -132,7 +138,7 @@ Prettier is pinned in `devDependencies` and its config is `.prettierrc`. The tra
   yarn dist:<platform>
   ```
 
-  Application Installer will be created in `dist/JupyterLab.dmg` (macOS), `dist/JupyterLab.deb` (Debian, Ubuntu), `dist/JupyterLab.rpm` (Red Hat, Fedora) and `dist/JupyterLab-Setup.exe` (Windows) based on the platform
+  Application Installer will be created in `dist/JupyterLab-arm64.dmg` or `dist/JupyterLab-x64.dmg` (macOS, which names the architecture), `dist/JupyterLab.deb` (Debian, Ubuntu), `dist/JupyterLab.rpm` (Red Hat, Fedora) and `dist/JupyterLab-Setup.exe` (Windows) based on the platform
 
 ## Shared seams in the main process
 

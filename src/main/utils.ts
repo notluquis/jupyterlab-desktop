@@ -157,13 +157,15 @@ export function writeJsonConfigFile(
   }
 
   // A name nobody can predict, rather than the pid. Two reasons, both taken from write-file-atomic, which hashes the module path, the pid, the thread id and a counter for the same purpose. `process.pid` is not unique inside a worker thread, so it does not actually keep two writers apart; and a predictable name is what makes the planted-symlink race worth defending against at all, so removing the prediction is better than only failing closed on it. The cost, and it is real: a process killed between the open and the rename leaves a temporary nothing will collect, where the pid form left at most one per pid. #1114 carries the sweep.
-  const tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
+  // Declared here and built inside the try, because randomBytes throws when the entropy source fails or is unavailable, and this function's callers are documented not to have to catch: will-quit calls it after preventDefault, so a throw escaping here leaves _quit unreached and the app unquittable. The cleanup below is gated on `created`, which cannot be true before the assignment.
+  let tempPath: string | undefined;
   let fd: number | undefined;
   // Whether the open below actually created this name. `wx` exists so an entry already there is refused rather than followed, and the cleanup would otherwise delete it anyway, undoing the guard on the one path where it fired.
   let created = false;
 
   try {
     // inside the try: a getter that throws would otherwise escape a function whose callers are documented not to have to catch
+    tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
     const contents = JSON.stringify(data, null, 2);
     // recursive is a no-op when the directory is already there, and checking first only opens a race window
     const parent = path.dirname(targetPath);

@@ -4,6 +4,21 @@ import * as path from 'path';
 import { app, nativeTheme } from 'electron';
 import log from 'electron-log';
 
+// randomBytes is a named import in the source, so its binding is fixed at import time and reassigning the module does nothing. Hoisted flag, because the factory runs above every const.
+const entropy = vi.hoisted(() => ({ fails: false }));
+vi.mock('crypto', async () => {
+  const actual = await vi.importActual<typeof import('crypto')>('crypto');
+  return {
+    ...actual,
+    randomBytes: (n: number) => {
+      if (entropy.fails) {
+        throw new Error('no entropy');
+      }
+      return actual.randomBytes(n);
+    }
+  };
+});
+
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
@@ -1130,6 +1145,17 @@ describe('writeJsonConfigFile', () => {
     expect(writeJsonConfigFile('/data/collide.json', {})).toBe(false);
 
     expect(mockFs.unlinkSync).not.toHaveBeenCalled();
+  });
+
+  // The contract the JSDoc states and will-quit depends on: this returns false, it never throws. randomBytes throws when the entropy source is unavailable, and building the temporary name outside the try let that escape, leaving _quit unreached and the app unquittable.
+  it('reports failure rather than throwing when the name cannot be built', () => {
+    entropy.fails = true;
+
+    try {
+      expect(writeJsonConfigFile('/data/noentropy.json', {})).toBe(false);
+    } finally {
+      entropy.fails = false;
+    }
   });
 
   it('follows a dangling link to the path it names', () => {

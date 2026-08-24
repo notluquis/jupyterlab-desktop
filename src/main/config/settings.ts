@@ -137,6 +137,14 @@ export namespace Setting {
   }
 }
 
+// Reported once per path per run. Eighteen call sites reach save(), so a condition that persists — an antivirus pass holding the file, a permission that stayed wrong — would otherwise put the same line in the log on every settings change, which is the reason this repository already gives for leaving the directory flush at debug.
+const reportedUnreadable = new Set<string>();
+
+/** Only for tests: the set above outlives them otherwise, and the second one to run reads as silent because the first already reported. */
+export function resetUnreadableReports(): void {
+  reportedUnreadable.clear();
+}
+
 /**
  * What the file holds right now, or nothing when it is absent or unusable. save merges over this rather than rebuilding, so a read that fails here costs the keys this build does not know rather than corrupting the ones it does; #1115 replaces this with the shared reader.
  */
@@ -150,7 +158,11 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
       : {};
   } catch (error) {
     // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it this once — EBUSY while an antivirus or backup pass holds it on Windows, EACCES after a permission change, EMFILE under descriptor pressure — and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent, silently and with the write reporting success. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
-    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+    if (
+      (error as NodeJS.ErrnoException)?.code !== 'ENOENT' &&
+      !reportedUnreadable.has(filePath)
+    ) {
+      reportedUnreadable.add(filePath);
       log.error(
         `Could not read ${filePath}, so keys this build does not know may be dropped from it`,
         error

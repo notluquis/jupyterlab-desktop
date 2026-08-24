@@ -22,6 +22,7 @@ import {
   DEFAULT_WIN_HEIGHT,
   DEFAULT_WIN_WIDTH,
   LogLevel,
+  resetUnreadableReports,
   resolveWorkingDirectory,
   serverLaunchArgsDefault,
   serverLaunchArgsFixed,
@@ -256,6 +257,11 @@ describe('UserSettings', () => {
   });
 
   // The catch used to swallow both cases the same way, and merging over {} deletes every key this build does not know: the loss this merge exists to prevent, with the write reporting success.
+  beforeEach(() => {
+    // module state, so without this the second unreadable case reads as silent because the first already reported
+    resetUnreadableReports();
+  });
+
   it('says so when the file is there and could not be read', () => {
     mockFs.existsSync = vi.fn(() => true);
     let reads = 0;
@@ -275,6 +281,26 @@ describe('UserSettings', () => {
       expect.stringContaining('may be dropped'),
       expect.anything()
     );
+  });
+
+  // Eighteen call sites reach save(), so a condition that persists would otherwise put the same line in the log on every settings change.
+  it('reports an unreadable file once, not on every save', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    let reads = 0;
+    mockFs.readFileSync = vi.fn(() => {
+      if (reads++ === 0) {
+        return Buffer.from('{"futureSetting":42}');
+      }
+      throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+    }) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.save();
+    us.save();
+    us.save();
+
+    expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
   });
 
   it('says nothing when the file is simply absent', () => {

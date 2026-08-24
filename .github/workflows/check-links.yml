@@ -47,7 +47,29 @@ jobs:
             echo "run_audit=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if git diff --quiet --no-ext-diff --diff-filter=ACMRT -G'https?://' "$BASE_SHA" "$HEAD_SHA"; then
+
+          base_sha="$BASE_SHA"
+          head_sha="$HEAD_SHA"
+          # A merge-commit checkout does not always have the pull request's own
+          # SHAs reachable. Upstream carries this fallback; without it git exits
+          # 128 and the check goes red for a reason unrelated to any link.
+          if ! git cat-file -e "${base_sha}^{commit}" || ! git cat-file -e "${head_sha}^{commit}"; then
+            if git cat-file -e "HEAD^1^{commit}" && git cat-file -e "HEAD^2^{commit}"; then
+              base_sha="HEAD^1"
+              head_sha="HEAD^2"
+            else
+              echo "Unable to inspect the pull request commits; auditing anyway."
+              echo "run_audit=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Scoped to the file types check_links.py reads. Without the pathspec,
+          # yarn.lock alone carries hundreds of registry URLs, so every
+          # dependency bump would run a full audit over documentation it did not
+          # touch.
+          if git diff --quiet --no-ext-diff --diff-filter=ACMRTD -G'https?://' \
+               "$base_sha" "$head_sha" -- '*.md' '*.rst' '*.ipynb'; then
             echo "run_audit=false" >> "$GITHUB_OUTPUT"
           else
             status=$?
@@ -67,7 +89,22 @@ jobs:
           persist-credentials: false
       - uses: jupyterlab/maintainer-tools/.github/actions/check-links@95d85449e4f3f352e261221f6529f8ed307f5728 # v1
         with:
-          # blog.jupyter.org is on Medium, which answers the checker with 403
-          # while the pages themselves load. It is on jupyterlab's own ignore
-          # list for the same reason.
-          ignore_links: 'https://blog.jupyter.org/.*'
+          # Same stance as jupyterlab's own list, narrowed to the hosts this
+          # repository actually links. Entries for hosts nothing here links
+          # would be config nobody can evaluate.
+          #
+          #   github.com       the checker validates a link with a full GET, no
+          #                    HEAD and no streaming, so the five installer links
+          #                    in the README download 2.2 GB per run and cache
+          #                    it. Ignoring the host also keeps 30 unauthenticated
+          #                    fetches away from the anonymous rate limit, which
+          #                    matters because this check blocks.
+          #   blog.jupyter.org on Medium, which answers a checker with 403 while
+          #                    the pages themselves load. Measured on a run
+          #                    without it: all six came back 403.
+          #
+          # About seventeen external links are still audited: snapcraft.io,
+          # readthedocs, jupyter.org, discourse, conda, nodejs, shields.
+          ignore_links: >-
+            https://github.com/.*
+            https://blog.jupyter.org/.*

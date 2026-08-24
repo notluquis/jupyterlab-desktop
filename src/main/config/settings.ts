@@ -140,6 +140,17 @@ export namespace Setting {
 // Reported once per path per run. Eighteen call sites reach save(), so a condition that persists — an antivirus pass holding the file, a permission that stayed wrong — would otherwise put the same line in the log on every settings change, which is the reason this repository already gives for leaving the directory flush at debug.
 const reportedUnreadable = new Set<string>();
 
+/** Say once per path that the file was there and unusable, and give back the empty object the caller merges over. */
+function reportRejected(filePath: string): { [key: string]: any } {
+  if (!reportedUnreadable.has(filePath)) {
+    reportedUnreadable.add(filePath);
+    log.error(
+      `${filePath} holds no JSON object, so keys this build does not know may be dropped from it`
+    );
+  }
+  return {};
+}
+
 /** Only for tests: the set above outlives them otherwise, and the second one to run reads as silent because the first already reported. */
 export function resetUnreadableReports(): void {
   reportedUnreadable.clear();
@@ -151,11 +162,13 @@ export function resetUnreadableReports(): void {
 function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath).toString());
+    // a later break in the same run has to be able to say so, or a support log collected that evening shows the first one and not the current state
+    reportedUnreadable.delete(filePath);
     return parsed !== null &&
       typeof parsed === 'object' &&
       !Array.isArray(parsed)
       ? parsed
-      : {};
+      : reportRejected(filePath);
   } catch (error) {
     // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it, and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent. The case that actually reaches the write is the parse failure: `userSettings` is constructed once at import, so a user who follows troubleshoot.md and hand-edits settings.json while the app runs, leaving a trailing comma, gets the SyntaxError caught here and will-quit rewrites the file without their edit. An EBUSY or EACCES would fail the writeFileSync below as well, so those throw rather than lose quietly. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
     if (

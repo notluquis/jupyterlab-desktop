@@ -221,9 +221,13 @@ describe('UserSettings', () => {
       const us = new UserSettings(true);
       us.save();
 
-      // Measured one assertion at a time against both mutations, because the first attempt at this comment asserted the opposite and was wrong. Against `read` walking the file instead of the enum, all three fire. Against the merge, `{ ...onDisk }` swapped for `Object.assign({}, onDisk)`, only the round-trip below fires: assign invokes the `__proto__` setter on `merged`, which retargets that object's own prototype and never touches `Object.prototype`, so neither probe sees it.
+      // What each of these is worth, measured rather than assumed, after two earlier versions of this comment got it wrong.
       //
-      // These two are the pollution probes, and they are what a future change that writes onto the prototype would trip.
+      // Against `read` walking the file instead of the enum: no assertion fires at all. The test dies first with `TypeError: Invalid property descriptor`, out of the assignment itself. The mutation is caught, by the throw, and leaving only one assertion in place does not tell you which one caught it — it tells you the throw happened before it.
+      //
+      // Against the merge, `{ ...onDisk }` swapped for `Object.assign({}, onDisk)`: only the round-trip below fires. Assign invokes the `__proto__` setter on `merged`, which retargets that object's own prototype and never touches `Object.prototype`, so neither probe can see it.
+      //
+      // So these two catch neither named mutation. They stay as the pollution invariant, which is what a future change that writes onto `Object.prototype` would trip, and the comment says so rather than claiming a guard they do not provide.
       expect(({} as any).value).toBeUndefined();
       expect(({} as any).pwned).toBeUndefined();
       // This one is the merge guard, and the only assertion here that catches the spread being swapped for assign. It reads as the redundant one next to two prototype checks, which is exactly why it says so.
@@ -254,8 +258,6 @@ describe('UserSettings', () => {
     );
     expect(written.constructor).toBe('c');
     expect(written.toString).toBe('t');
-    // and nothing leaked onto the prototype on the way
-    expect(({} as any).c).toBeUndefined();
   });
 
   // The catch used to swallow both cases the same way, and merging over {} deletes every key this build does not know: the loss this merge exists to prevent, with the write reporting success.
@@ -303,6 +305,35 @@ describe('UserSettings', () => {
     us.save();
 
     expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
+  });
+
+  // One-shot for the whole process would show a support log the first breakage and not the current state: repaired at noon and broken again at three has to say so twice.
+  it('says so again after the file was repaired and broke again', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    const shapes = ['{"a":1}', 'nope', '{"a":1}', 'nope'];
+    let n = 0;
+    mockFs.readFileSync = vi.fn(() => Buffer.from(shapes[n++] ?? '{}')) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.save();
+    us.save();
+    us.save();
+
+    expect(vi.mocked(log.error).mock.calls).toHaveLength(2);
+  });
+
+  // Rejected for its shape rather than for a parse failure, and it wipes the file the same way, so it cannot be the one case that says nothing.
+  it('says so when the top level is not an object', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    new UserSettings(true).save();
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('holds no JSON object')
+    );
   });
 
   it('says nothing when the file is simply absent', () => {

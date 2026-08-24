@@ -409,7 +409,7 @@ export function addUserSetEnvironment(envPath: string, isConda: boolean) {
     defaultKernel: 'python3'
   });
   if (!appData.save()) {
-    // the default python path below is written to a different file, so this reports and carries on rather than skipping it
+    // the default python path below is written to a different file, so this reports and carries on rather than skipping it. No exit status: this runs in the GUI as well, for the same reason as the call further down.
     console.error(
       'Could not write the application data file, so the environment is only added for this run.'
     );
@@ -429,7 +429,10 @@ export function addUserSetEnvironment(envPath: string, isConda: boolean) {
             `Setting "${defaultPythonPath}" as the default Python path`
           );
         } else {
-          reportUnsavedSetting('the default Python path');
+          // reached from the GUI too, through app.ts's InstallBundledPythonEnv handler, so it must not leave a status behind on a process that is not exiting
+          reportUnsavedSetting('the default Python path', undefined, {
+            setsExitCode: false
+          });
         }
       }
     }
@@ -895,9 +898,17 @@ function settingsFilePathFor(projectPath?: string): string {
     : UserSettings.getUserSettingsPath();
 }
 
-function reportUnsavedSetting(what: string, projectPath?: string): void {
+function reportUnsavedSetting(
+  what: string,
+  projectPath?: string,
+  { setsExitCode = true }: { setsExitCode?: boolean } = {}
+): void {
   // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: the message goes to stderr and the status stays 0, which automation cannot tell from success. Set rather than process.exit, so the handler finishes and the process ends on its own. getProjectPathForConfigCommand is the file's own precedent for a non-zero status on a user-visible refusal.
-  process.exitCode = 1;
+  //
+  // Off for the callers that also run inside the long-lived GUI process, where nothing is about to exit: the status would sit there until the user quit hours later and then report the whole session as a failure to whatever launched it.
+  if (setsExitCode) {
+    process.exitCode = 1;
+  }
 
   const file = settingsFilePathFor(projectPath);
 

@@ -24,6 +24,7 @@ vi.mock('fs', async () => {
     readFileSync: vi.fn(),
     renameSync: vi.fn(),
     realpathSync: vi.fn(),
+    chownSync: vi.fn(),
     fchownSync: vi.fn(),
     fchmodSync: vi.fn()
   };
@@ -117,6 +118,7 @@ beforeEach(() => {
   mockFs.closeSync = vi.fn();
   mockFs.unlinkSync = vi.fn();
   mockFs.realpathSync = vi.fn();
+  mockFs.chownSync = vi.fn();
   mockFs.fchownSync = vi.fn();
   mockFs.fchmodSync = vi.fn();
 });
@@ -1089,6 +1091,30 @@ describe('writeJsonConfigFile', () => {
     // the bytes genuinely may not be there, so publishing the name over the old file would be a lie
     expect(writeJsonConfigFile('/data/eio-fsync.json', {})).toBe(false);
     expect(mockFs.renameSync).not.toHaveBeenCalled();
+  });
+
+  // Under sudo the directory this call creates is root's too, so the fallback above would have read root:root and carried it onto the file: `.jupyter` inside a user's project is that case.
+  it('carries ownership onto a directory it had to create', () => {
+    const realGetuid = process.getuid;
+    (process as any).getuid = () => 0;
+    mockFs.lstatSync = vi.fn(() => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }) as any;
+    mockFs.mkdirSync = vi.fn(() => '/proj/.jupyter') as any;
+    mockFs.statSync = vi.fn((target: string) => {
+      if (target === '/proj') {
+        return { uid: 501, gid: 20, mode: 0o40755 } as any;
+      }
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }) as any;
+
+    try {
+      writeJsonConfigFile('/proj/.jupyter/desktop-settings.json', {});
+    } finally {
+      (process as any).getuid = realGetuid;
+    }
+
+    expect(mockFs.chownSync).toHaveBeenCalledWith('/proj/.jupyter', 501, 20);
   });
 
   it('follows a dangling link to the path it names', () => {

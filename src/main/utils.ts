@@ -155,7 +155,12 @@ export function writeJsonConfigFile(
     // inside the try: a getter that throws would otherwise escape a function whose callers are documented not to have to catch
     const contents = JSON.stringify(data, null, 2);
     // recursive is a no-op when the directory is already there, and checking first only opens a race window
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    const parent = path.dirname(targetPath);
+    // mkdirSync returns the topmost directory it had to create, or undefined when there was nothing to do. Under sudo those are created root-owned, so a config landing in a directory this call just made would have had root:root to copy from and the fallback below would be a no-op: `.jupyter` inside a user's project is the case.
+    const createdRoot = fs.mkdirSync(parent, { recursive: true });
+    if (createdRoot) {
+      carryOwnershipOntoPath(createdRoot, parent);
+    }
     // Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces. A new file is 0600 by default: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at. 'umask' is for a file with no secret in it, and it works by leaving the mask alone to narrow openSync's argument, which is what master's writeFileSync did; reading the mask to compute a mode would mean setting it, and process.umask has no read-only form that is not deprecated.
     const mode = existing
       ? existing.mode & 0o777
@@ -167,7 +172,7 @@ export function writeJsonConfigFile(
       // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
       fs.fchmodSync(fd, mode);
     }
-    carryOwnership(fd, existing ?? statOrUndefined(path.dirname(targetPath)));
+    carryOwnership(fd, existing ?? statOrUndefined(parent));
     fs.writeFileSync(fd, contents);
     // rename publishes the name, not the bytes: without this a power cut can leave a good filename on an empty file
     try {
@@ -336,6 +341,31 @@ function openExclusive(tempPath: string, mode: number): number {
  *
  * With no file to copy from, the containing directory is the owner to match: `sudo jlab` on a config that does not exist yet would otherwise create it root:root and lock every later unprivileged run out of its own settings, which is the case this function exists to prevent. Where the directory is genuinely root's, as under a sudo that also moved HOME, root:root is what it already says and nothing changes.
  */
+/**
+ * Give the directories from `createdRoot` down to `leaf` the owner of whatever already existed above them. Only ever does anything under root, and only for directories this process just created.
+ */
+function carryOwnershipOntoPath(createdRoot: string, leaf: string): void {
+  if (process.getuid?.() !== 0) {
+    return;
+  }
+
+  const owner = statOrUndefined(path.dirname(createdRoot));
+  if (!owner) {
+    return;
+  }
+
+  for (let dir = leaf; dir.startsWith(createdRoot); dir = path.dirname(dir)) {
+    try {
+      fs.chownSync(dir, owner.uid, owner.gid);
+    } catch (error) {
+      log.error(`Failed to carry ownership onto ${dir}`, error);
+    }
+    if (dir === createdRoot) {
+      break;
+    }
+  }
+}
+
 function carryOwnership(fd: number, owner?: fs.Stats): void {
   if (!owner || process.getuid?.() !== 0) {
     return;

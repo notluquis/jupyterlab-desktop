@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
@@ -29,8 +29,10 @@ import {
   SettingType,
   ThemeType,
   UIMode,
+  UserSettings,
   WorkspaceSettings
 } from '../../src/main/config/settings';
+import { resetConfigFile } from '../../src/main/utils';
 
 const mockFs = vi.mocked(fs);
 
@@ -201,6 +203,11 @@ describe('WorkspaceSettings save', () => {
       return Buffer.from('{ this is not json');
     }) as any;
   };
+
+  // the mark lives in module state, so it outlives the test that set it. settings.test.ts and appdata.test.ts both carry this hook for the same reason; without it the next test appended here gets a refused write it did not ask for, and the failure points at that test rather than at this one.
+  afterEach(() => {
+    resetConfigFile(UserSettings.getUserSettingsPath());
+  });
 
   it('refuses to rewrite the workspace file when the global one is unreadable', () => {
     corruptGlobalAndReadableWorkspace();

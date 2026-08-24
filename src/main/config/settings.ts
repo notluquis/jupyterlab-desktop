@@ -310,6 +310,8 @@ export class WorkspaceSettings extends UserSettings {
 
   save(): boolean {
     // A project override is persisted only when it differs from the user value, and the user value comes from the global settings.json. Unreadable, that read yields defaults, so an override that happens to equal a default stops looking like an override and would be dropped from a workspace file that is perfectly readable. Refuse instead: this file's correctness depends on one we could not read, which is the same reason the writer refuses the marked file itself.
+    //
+    // Including uiMode, which is exempt from that comparison twelve lines below and would survive it. The refusal is not about one key: save() rebuilds the whole file from what the comparison produced, so writing it at all to persist uiMode would drop every other override in the same breath. Losing the Zen toggle for the run is the smaller of the two.
     if (configFileIsUnreadable(UserSettings.getUserSettingsPath())) {
       // logged rather than only returned: all three GUI callers discard the boolean, so without this the refusal reaches nobody at all
       log.error(

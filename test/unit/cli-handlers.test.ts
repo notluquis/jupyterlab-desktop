@@ -362,6 +362,30 @@ describe('reporting a refused write', () => {
     }
   });
 
+  // addUserSetEnvironment is not CLI-only: app.ts calls it from the InstallBundledPythonEnv handler. A status left behind there sits on a process that is not exiting, and the app reports the whole session as a failure when the user quits hours later.
+  it('leaves the status alone on a path the GUI also reaches', () => {
+    const previous = process.exitCode;
+    process.exitCode = 0;
+    refuseSaves();
+    (userSettings as any).getValue = vi.fn(() => '');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    // the bundled python missing is what sends it down to the env's own python and the save below it; with the bundled one present the whole block is skipped and this asserts nothing
+    mockFs.existsSync = vi.fn(
+      (target: any) => String(target) !== '/bundled/python'
+    ) as any;
+
+    try {
+      addUserSetEnvironment('/envs/one', true);
+      expect(process.exitCode).toBe(0);
+      expect(err).toHaveBeenCalled();
+    } finally {
+      process.exitCode = previous;
+      err.mockRestore();
+      out.mockRestore();
+    }
+  });
+
   it('points at the unreadable file instead when that is the reason', async () => {
     refuseSaves();
     (utilsModule as any).configFileIsUnreadable = vi.fn(() => true);

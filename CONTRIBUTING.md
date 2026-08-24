@@ -10,7 +10,7 @@ JupyterLab Desktop packages [JupyterLab](https://github.com/jupyterlab/jupyterla
 
 Pull requests follow the [template](.github/pull_request_template.md), which includes a section on AI usage. Answer both of its questions honestly, and keep the pull request in draft until you have run the code yourself.
 
-This project follows the [Jupyter Code of Conduct](https://github.com/jupyter/governance/blob/main/conduct/code_of_conduct.md). Security vulnerabilities go to security@jupyter.org rather than to a public issue, as described in the [Jupyter security policy](https://jupyter.org/security).
+This project follows the [Jupyter Code of Conduct](https://github.com/jupyter/governance/blob/main/conduct/code_of_conduct.md). Security vulnerabilities never go to a public issue: the [Jupyter security policy](https://jupyter.org/security) asks for a GitHub Security Advisory on this repository, and security@jupyter.org only when that is not possible.
 
 ## Build dependencies
 
@@ -44,7 +44,7 @@ This project follows the [Jupyter Code of Conduct](https://github.com/jupyter/go
 
 JupyterLab Desktop bundles JupyterLab front-end and a conda environment as JupyterLab Desktop Server as its backend into an Electron application.
 
-`<platform>`: osx-64, osx-arm64, linux or win
+`<platform>`: osx-64, osx-arm64, linux-64, linux-aarch64 or win-64. The `dist` scripts also take `win-arm64`, and `osx` for both macOS architectures at once. `package.json` is the list.
 
 - Get the project source code
 
@@ -88,18 +88,29 @@ yarn test:e2e          # playwright test, requires yarn build first
 
 `yarn test:e2e` launches the built entry point rather than the sources: `package.json` points `main` at `./build/out/main/main.js`, and the tests call `electron.launch` against the project directory. On a clean checkout the run fails on a missing bundle rather than on a real defect, so run `yarn build` before it.
 
-Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules that are unit-testable; the window, view, dialog and preload surfaces are integration code covered by the e2e suite. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
-
-Two more checks run in CI and are worth running before pushing:
+It also needs a Python with JupyterLab, pointed at by `JLAB_TEST_PYTHON_PATH`. Without it the env-backed specs skip rather than fail, so the suite reports green while the tests that exercise environments never ran. `.github/workflows/e2e.yml` builds a venv for this, and the same thing locally is:
 
 ```bash
-yarn type-check           # tsc --noEmit
-yarn lint:check           # prettier --check and eslint, no writes
-yarn lint                 # the same two, applying fixes
-yarn check_version_match  # desktop version against the bundled JupyterLab version
+python3 -m venv /tmp/jlab-venv
+/tmp/jlab-venv/bin/pip install jupyterlab ipywidgets
+export JLAB_TEST_PYTHON_PATH=/tmp/jlab-venv/bin/python
 ```
 
-Prettier is pinned in `devDependencies` and its config is `.prettierrc`. Running it through `npx` resolves a different major and reports formatting differences that are not real, so use the repo's own binary.
+On Linux, Playwright also needs its system libraries: `npx playwright install-deps`.
+
+Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules that are unit-testable; the window, view, dialog and preload surfaces are integration code covered by the e2e suite. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
+
+Three more checks run in CI and are worth running before pushing:
+
+```bash
+yarn type-check           # tsc --noEmit, run by typecheck.yml
+yarn lint:check           # prettier --check and eslint, no writes, run by publish.yml
+yarn check_version_match  # desktop against bundled JupyterLab version, run by publish.yml
+```
+
+`yarn lint` is the same two as `lint:check` with fixes applied. CI never runs it, since a job that rewrites the tree would have nowhere to put the result.
+
+Prettier is pinned in `devDependencies` and its config is `.prettierrc`. The trap is the config rather than the binary: run against a file outside the project tree, prettier finds no `.prettierrc` to inherit, falls back to its defaults and reports wrapping differences that do not exist. Pass the config explicitly when checking anything that is not in place: `./node_modules/.bin/prettier --config ./.prettierrc --check <file>`.
 
 ## Building for distribution
 

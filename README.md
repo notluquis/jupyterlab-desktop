@@ -100,4 +100,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running, testing and packag
 
 Questions about using JupyterLab Desktop are welcome on the [Jupyter Discourse forum](https://discourse.jupyter.org/). If you have found a defect, check the [troubleshooting guide](troubleshoot.md) first, then open an [issue](https://github.com/jupyterlab/jupyterlab-desktop/issues).
 
-Security vulnerabilities go to security@jupyter.org rather than to a public issue, as described in the [Jupyter security policy](https://jupyter.org/security).
+Security vulnerabilities never go to a public issue: the [Jupyter security policy](https://jupyter.org/security) asks for a GitHub Security Advisory on this repository, and security@jupyter.org only when that is not possible.

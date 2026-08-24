@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import log from 'electron-log';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -209,5 +210,9 @@ describe('WorkspaceSettings save', () => {
     expect(ws.save()).toBe(false);
     // the override survives because nothing was written over it
     expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+    // and it is logged, because all three GUI callers discard the boolean: without this the refusal reaches nobody
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('desktop-settings.json')
+    );
   });
 });

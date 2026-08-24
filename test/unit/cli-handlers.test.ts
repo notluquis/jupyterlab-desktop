@@ -36,23 +36,33 @@ vi.mock('../../src/main/config/settings', () => ({
   userSettings: {
     getValue: vi.fn(() => ''),
     setValue: vi.fn(),
-    save: vi.fn(() => true)
+    save: vi.fn(() => true),
+    // the config handlers read this to decide whether a key may be overridden per project
+    settings: { theme: { wsOverridable: true } }
   },
   SettingType: {
     pythonPath: 'pythonPath',
     pythonEnvsPath: 'pythonEnvsPath',
     condaPath: 'condaPath',
     condaChannels: 'condaChannels',
-    systemPythonPath: 'systemPythonPath'
+    systemPythonPath: 'systemPythonPath',
+    theme: 'theme'
   },
   UserSettings: Object.assign(vi.fn(), {
     getUserSettingsPath: vi.fn(() => '/tmp/jlab-test/settings.json')
   }),
-  WorkspaceSettings: Object.assign(vi.fn(), {
-    getWorkspaceSettingsPath: vi.fn(
-      (dir: string) => `${dir}/.jupyter/desktop-settings.json`
-    )
-  })
+  resolveWorkingDirectory: vi.fn((dir: string) => dir),
+  // an arrow function cannot be used with `new`, and a bare vi.fn() constructs an object with none of the methods the handler calls
+  WorkspaceSettings: Object.assign(
+    vi.fn().mockImplementation(function () {
+      return { setValue: vi.fn(), save: vi.fn(() => false) };
+    } as any),
+    {
+      getWorkspaceSettingsPath: vi.fn(
+        (dir: string) => `${dir}/.jupyter/desktop-settings.json`
+      )
+    }
+  )
 }));
 vi.mock('../../src/main/utils', () => ({
   getBundledPythonPath: vi.fn(() => '/bundled/python'),
@@ -64,7 +74,6 @@ vi.mock('../../src/main/utils', () => ({
     pythonPath.replace('/bin/python', '')
   ),
   configFileIsUnreadable: vi.fn(() => false),
-  resolveWorkingDirectory: vi.fn((dir: string) => dir),
   createCommandScriptInEnv: vi.fn(),
   createTempFile: vi.fn(),
   installCondaPackEnvironment: vi.fn(),
@@ -102,7 +111,8 @@ import {
   handleEnvSetCondaChannelsCommand,
   handleEnvSetCondaPathCommand,
   handleEnvSetPythonEnvsPathCommand,
-  handleEnvSetSystemPythonPathCommand
+  handleEnvSetSystemPythonPathCommand,
+  handleConfigSetCommand
 } from '../../src/main/cli';
 import { appData } from '../../src/main/config/appdata';
 import { SettingType, userSettings } from '../../src/main/config/settings';
@@ -120,6 +130,7 @@ beforeEach(() => {
   (userSettings as any).getValue = vi.fn(() => '');
   (userSettings as any).setValue = vi.fn();
   (userSettings as any).save = vi.fn(() => true);
+  (utilsModule as any).configFileIsUnreadable = vi.fn(() => false);
   vi.spyOn(envModule, 'validateCondaPath').mockResolvedValue({ valid: true });
   vi.spyOn(envModule, 'validateSystemPythonPath').mockResolvedValue({
     valid: true
@@ -312,10 +323,29 @@ describe('reporting a refused write', () => {
     out.mockRestore();
   });
 
-  // The read guard and a failed write are different refusals, and only one of them is something the reader can act on, so they must not print the same sentence.
+  // The read guard and a failed write are different refusals, and only one of them is something the reader can act on, so they must not print the same sentence. A workspace save is refused when the global file is the unreadable one, so the message has to name the global rather than the healthy workspace file it was about to write.
+  it('names the global file when that is what could not be read', async () => {
+    refuseSaves();
+    (utilsModule as any).configFileIsUnreadable = vi.fn(
+      (p: string) => p === '/tmp/jlab-test/settings.json'
+    );
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFs.existsSync = vi.fn(() => true);
+
+    await handleConfigSetCommand({
+      _: ['set', 'theme', 'dark'],
+      project: '/data/nb'
+    });
+
+    expect(err).toHaveBeenCalledWith(
+      expect.stringContaining('/tmp/jlab-test/settings.json could not be read')
+    );
+    err.mockRestore();
+  });
+
   it('points at the unreadable file instead when that is the reason', async () => {
     refuseSaves();
-    vi.mocked(utilsModule.configFileIsUnreadable).mockReturnValue(true);
+    (utilsModule as any).configFileIsUnreadable = vi.fn(() => true);
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockFs.existsSync = vi.fn(() => true);
     vi.spyOn(envModule, 'validateCondaPath').mockResolvedValue({ valid: true });
@@ -327,7 +357,6 @@ describe('reporting a refused write', () => {
     expect(err).toHaveBeenCalledWith(
       expect.stringContaining('could not be read')
     );
-    vi.mocked(utilsModule.configFileIsUnreadable).mockReturnValue(false);
     err.mockRestore();
   });
 });

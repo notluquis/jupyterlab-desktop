@@ -898,10 +898,16 @@ function settingsFilePathFor(projectPath?: string): string {
 function reportUnsavedSetting(what: string, projectPath?: string): void {
   const file = settingsFilePathFor(projectPath);
 
+  // Both files, because a workspace save is refused when the *global* one could not be read: a project override is only persisted when it differs from the user value, and that value comes from the global file. Naming the workspace file there would point the reader at a healthy one and withhold the only actionable half of the message.
+  const unreadable = [
+    file,
+    UserSettings.getUserSettingsPath()
+  ].find(candidate => configFileIsUnreadable(candidate));
+
   // the refusal is far more often the read guard than a failed write, and only one of the two has something the reader can do about it
-  if (configFileIsUnreadable(file)) {
+  if (unreadable) {
     console.error(
-      `${file} could not be read, so ${what} was not saved. Repair the JSON in it, or move it aside and let a fresh one be written.`
+      `${unreadable} could not be read, so ${what} was not saved. Repair the JSON in it, or move it aside and let a fresh one be written.`
     );
     return;
   }
@@ -1033,7 +1039,7 @@ function handleConfigListCommand(argv: any) {
   console.log(listLines.join('\n'));
 }
 
-function handleConfigSetCommand(argv: any) {
+export function handleConfigSetCommand(argv: any) {
   const parseSetting = (): { key: string; value: string } => {
     if (argv._.length !== 3) {
       console.error(`Invalid setting. Use "set <settingKey> <value>" format.`);

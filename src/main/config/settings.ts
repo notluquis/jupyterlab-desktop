@@ -3,12 +3,12 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import log from 'electron-log';
 import {
   configFileIsUnreadable,
   getUserDataDir,
   getUserHomeDir,
   readJsonConfigFile,
-  umaskFileMode,
   writeJsonConfigFile
 } from '../utils';
 
@@ -311,6 +311,12 @@ export class WorkspaceSettings extends UserSettings {
   save(): boolean {
     // A project override is persisted only when it differs from the user value, and the user value comes from the global settings.json. Unreadable, that read yields defaults, so an override that happens to equal a default stops looking like an override and would be dropped from a workspace file that is perfectly readable. Refuse instead: this file's correctness depends on one we could not read, which is the same reason the writer refuses the marked file itself.
     if (configFileIsUnreadable(UserSettings.getUserSettingsPath())) {
+      // logged rather than only returned: all three GUI callers discard the boolean, so without this the refusal reaches nobody at all
+      log.error(
+        `Not writing ${WorkspaceSettings.getWorkspaceSettingsPath(
+          this._workingDirectory
+        )}, the user settings it is compared against could not be read this session`
+      );
       return false;
     }
 
@@ -336,8 +342,8 @@ export class WorkspaceSettings extends UserSettings {
     // Write when there is something to persist, or when a previous file needs
     // to be cleared. The directory is created by the writer.
     if (Object.keys(wsSettings).length > 0 || fs.existsSync(wsSettingsPath)) {
-      // The umask default rather than 0600: this one lives in the user's project, not in the app's own directory, it holds no token, and a project directory shared between two accounts is a real place for it to be. master created it this way.
-      return writeJsonConfigFile(wsSettingsPath, wsSettings, umaskFileMode());
+      // 'umask' rather than the 0600 default: this one lives in the user's project, not in the app's own directory, it holds no token, and a project directory shared between two accounts is a real place for it to be. master created it this way.
+      return writeJsonConfigFile(wsSettingsPath, wsSettings, 'umask');
     }
 
     return true;

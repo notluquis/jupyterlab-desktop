@@ -230,6 +230,29 @@ describe('UserSettings', () => {
     }
   });
 
+  // `__proto__` is the one that pollutes; `constructor` and `toString` are the two that shadow. All three have to come back out of the merge as own properties of a plain object, or a key somebody put in the file is lost the same way an unknown one used to be.
+  it('carries constructor and toString through the merge as plain keys', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn(() =>
+      Buffer.from('{"constructor":"c","toString":"t","theme":"dark"}')
+    ) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.save();
+
+    const written = JSON.parse(
+      (mockFs.writeFileSync as any).mock.calls[0][1] as string
+    );
+    expect(Object.getOwnPropertyNames(written)).toEqual(
+      expect.arrayContaining(['constructor', 'toString'])
+    );
+    expect(written.constructor).toBe('c');
+    expect(written.toString).toBe('t');
+    // and nothing leaked onto the prototype on the way
+    expect(({} as any).c).toBeUndefined();
+  });
+
   it('takes nothing from a file whose top level is not an object', () => {
     mockFs.existsSync = vi.fn(() => true);
     mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;

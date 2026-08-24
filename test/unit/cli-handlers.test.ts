@@ -286,9 +286,7 @@ describe('handleEnvSetSystemPythonPathCommand', () => {
   });
 });
 
-// Every one of these branches was unreachable: no test set save() to false, so the suite
-// stayed green without running a line of the reporting the pull request is about, and the
-// module mocks would have died on a TypeError before the first assertion if one had.
+// Every one of these branches was unreachable: no test set save() to false, so the suite stayed green without running a line of the reporting the pull request is about, and the module mocks would have died on a TypeError before the first assertion if one had.
 describe('reporting a refused write', () => {
   const refuseSaves = () => {
     (userSettings as any).save = vi.fn(() => false);
@@ -314,8 +312,7 @@ describe('reporting a refused write', () => {
     out.mockRestore();
   });
 
-  // The read guard and a failed write are different refusals, and only one of them is
-  // something the reader can act on, so they must not print the same sentence.
+  // The read guard and a failed write are different refusals, and only one of them is something the reader can act on, so they must not print the same sentence.
   it('points at the unreadable file instead when that is the reason', async () => {
     refuseSaves();
     vi.mocked(utilsModule.configFileIsUnreadable).mockReturnValue(true);

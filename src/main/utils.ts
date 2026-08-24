@@ -342,11 +342,6 @@ function openExclusive(tempPath: string, mode: number): number {
 }
 
 /**
- * A run as root would otherwise leave the config owned by root and the user unable to write their own settings again. write-file-atomic and atomically both carry the owner across for the same reason. Through the descriptor, since the path form follows a symlink and would hand away whatever it names.
- *
- * With no file to copy from, the containing directory is the owner to match: `sudo jlab` on a config that does not exist yet would otherwise create it root:root and lock every later unprivileged run out of its own settings, which is the case this function exists to prevent. Where the directory is genuinely root's, as under a sudo that also moved HOME, root:root is what it already says and nothing changes.
- */
-/**
  * Give the directories from `createdRoot` down to `leaf` the owner of whatever already existed above them. Only ever does anything under root, and only for directories this process just created.
  */
 function carryOwnershipOntoPath(createdRoot: string, leaf: string): void {
@@ -371,6 +366,11 @@ function carryOwnershipOntoPath(createdRoot: string, leaf: string): void {
   }
 }
 
+/**
+ * A run as root would otherwise leave the config owned by root and the user unable to write their own settings again. write-file-atomic and atomically both carry the owner across for the same reason. Through the descriptor, since the path form follows a symlink and would hand away whatever it names.
+ *
+ * With no file to copy from, the containing directory is the owner to match: `sudo jlab` on a config that does not exist yet would otherwise create it root:root and lock every later unprivileged run out of its own settings, which is the case this function exists to prevent. Where the directory is genuinely root's, as under a sudo that also moved HOME, root:root is what it already says and nothing changes.
+ */
 function carryOwnership(fd: number, owner?: fs.Stats): void {
   if (!owner || process.getuid?.() !== 0) {
     return;

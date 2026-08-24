@@ -565,6 +565,8 @@ export async function handleEnvUpdateRegistryCommand(argv: any) {
     console.error(
       'Could not write the application data file, so the refreshed registry is only in memory.'
     );
+    // CLI-only, unlike addUserSetEnvironment above: app.ts imports only that one and createPythonEnvironment, so nothing here runs inside the long-lived process and `jlab env update-registry && deploy.sh` has the same reason to stop as a refused setting.
+    process.exit(1);
   }
 }
 

@@ -206,6 +206,9 @@ describe('WorkspaceSettings save', () => {
 
   // the mark lives in module state, so it outlives the test that set it. settings.test.ts and appdata.test.ts both carry this hook for the same reason; without it the next test appended here gets a refused write it did not ask for, and the failure points at that test rather than at this one.
   afterEach(() => {
+    // resetConfigFile scans twenty quarantine slots and gives up when they all exist, so with the fixture's existsSync still answering true it returns false and clears nothing. appdata.test.ts and settings.test.ts both set this before calling it; this one did not, and the hook was a no-op that read as cleanup.
+    mockFs.existsSync = vi.fn(() => false);
+    mockFs.renameSync = vi.fn();
     resetConfigFile(UserSettings.getUserSettingsPath());
   });
 
@@ -221,5 +224,14 @@ describe('WorkspaceSettings save', () => {
     expect(log.error).toHaveBeenCalledWith(
       expect.stringContaining('desktop-settings.json')
     );
+  });
+
+  // Guards the afterEach above rather than the code: the mark is module state, and without a working reset this fails while pointing at itself instead of at the corrupt-global test that left it.
+  it('is not left refusing writes by the test before it', () => {
+    mockFs.existsSync = vi.fn(() => false);
+    const ws = new WorkspaceSettings('/data/nb');
+    ws.setValue(SettingType.uiMode, UIMode.Zen);
+
+    expect(ws.save()).toBe(true);
   });
 });

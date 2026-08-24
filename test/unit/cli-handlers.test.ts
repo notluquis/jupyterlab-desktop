@@ -112,7 +112,8 @@ import {
   handleEnvSetCondaChannelsCommand,
   handleEnvSetCondaPathCommand,
   handleEnvSetPythonEnvsPathCommand,
-  handleEnvSetSystemPythonPathCommand
+  handleEnvSetSystemPythonPathCommand,
+  handleEnvUpdateRegistryCommand
 } from '../../src/main/cli';
 import { appData } from '../../src/main/config/appdata';
 import { SettingType, userSettings } from '../../src/main/config/settings';
@@ -385,6 +386,21 @@ describe('reporting a refused write', () => {
       addUserSetEnvironment('/envs/one', true);
       expect(exit).not.toHaveBeenCalled();
       expect(err).toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+      out.mockRestore();
+    }
+  });
+
+  // CLI-only, so nothing here runs inside the long-lived process and it has the same reason to stop as a refused setting.
+  it('exits non-zero when the registry refresh could not be written', async () => {
+    refuseSaves();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await handleEnvUpdateRegistryCommand({ _: ['update-registry'] });
+      expect(exit).toHaveBeenCalledWith(1);
     } finally {
       err.mockRestore();
       out.mockRestore();

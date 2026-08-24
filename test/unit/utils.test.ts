@@ -39,7 +39,6 @@ vi.mock('fs', async () => {
     readFileSync: vi.fn(),
     renameSync: vi.fn(),
     realpathSync: vi.fn(),
-    chownSync: vi.fn(),
     fchownSync: vi.fn(),
     fchmodSync: vi.fn()
   };
@@ -133,7 +132,6 @@ beforeEach(() => {
   mockFs.closeSync = vi.fn();
   mockFs.unlinkSync = vi.fn();
   mockFs.realpathSync = vi.fn();
-  mockFs.chownSync = vi.fn();
   mockFs.fchownSync = vi.fn();
   mockFs.fchmodSync = vi.fn();
 });
@@ -1006,6 +1004,7 @@ describe('writeJsonConfigFile', () => {
   it('carries the existing permissions onto the temporary', () => {
     mockFs.lstatSync = vi.fn(() => ({
       isSymbolicLink: () => false,
+      isFile: () => true,
       mode: 0o100600
     })) as any;
 
@@ -1013,6 +1012,24 @@ describe('writeJsonConfigFile', () => {
 
     // chmod, not openSync's mode, which the umask narrows on the way through
     expect(mockFs.fchmodSync).toHaveBeenCalledWith(7, 0o600);
+  });
+
+  // A directory answers 0755, and carrying that onto the temporary would create the file holding app-data.json's tokens world-readable for as long as it exists. Only a regular file has bits worth copying.
+  it('does not take its mode from a directory sitting at the config path', () => {
+    // lstatSync, not statSync: that is what the non-symlink path reads, and mocking the other one made this pass on the 0600 default instead of on the guard.
+    mockFs.lstatSync = vi.fn(() => ({
+      isSymbolicLink: () => false,
+      isFile: () => false,
+      mode: 0o40755
+    })) as any;
+
+    writeJsonConfigFile('/data/app-data.json', {});
+
+    expect(mockFs.openSync).toHaveBeenCalledWith(
+      expect.any(String),
+      'wx',
+      0o600
+    );
   });
 
   it('closes the descriptor when the write fails before the rename', () => {
@@ -1041,6 +1058,7 @@ describe('writeJsonConfigFile', () => {
     (process as any).getuid = () => 0;
     mockFs.lstatSync = vi.fn(() => ({
       isSymbolicLink: () => false,
+      isFile: () => true,
       mode: 0o100600,
       uid: 501,
       gid: 20
@@ -1087,6 +1105,7 @@ describe('writeJsonConfigFile', () => {
     // lstatSync, the same call the root case above stubs: it is what finds the existing file, and stubbing statSync instead left this returning on the `!existing` branch without ever reaching the check it is named after
     mockFs.lstatSync = vi.fn(() => ({
       isSymbolicLink: () => false,
+      isFile: () => true,
       mode: 0o100600,
       uid: 501,
       gid: 20

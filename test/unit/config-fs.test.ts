@@ -241,8 +241,8 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     expect(siblings()).toEqual(['settings.json']);
   });
 
-  it('leaves a temporary belonging to another process alone', () => {
-    // the pid in the name is what keeps two instances off each other; the second path is the one a pid-less implementation would have taken
+  it('leaves a temporary belonging to another run alone', () => {
+    // Names it cannot have chosen, since 8039df1 made the suffix random rather than the pid. What this pins is the cleanup: it removes the one name it created and must not sweep the directory, or a second instance mid-write loses its temporary.
     const target = path.join(dir, 'settings.json');
     const otherPid = `${target}.999999.tmp`;
     const shared = `${target}.tmp`;

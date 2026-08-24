@@ -170,8 +170,8 @@ export function writeJsonConfigFile(
     if (createdRoot) {
       carryOwnershipOntoPath(createdRoot, parent);
     }
-    // A new file is 0600 by default: app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at. 'umask' is for a file with no secret in it, and it works by leaving the mask alone to narrow openSync's argument, which is what master's writeFileSync did; reading the mask to compute a mode would mean setting it, and process.umask has no read-only form that is not deprecated.
-    const mode = existing
+    // Only a regular file has bits worth carrying: a directory at the config path answers 0755, and the temporary holding app-data.json's tokens would be created world-readable until the rename fails, which test/unit/config-fs.test.ts reaches. Otherwise a new file is 0600, because app-data.json holds recentRemoteURLs and those entries carry a token in the query string, so the umask default is too generous to create it at. 'umask' is for a file with no secret in it, and it works by leaving the mask alone to narrow openSync's argument, which is what master's writeFileSync did; reading the mask to compute a mode would mean setting it, and process.umask has no read-only form that is not deprecated.
+    const mode = existing?.isFile()
       ? existing.mode & 0o777
       : newFile === 'private'
       ? 0o600

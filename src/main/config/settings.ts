@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import log from 'electron-log';
 import { getUserDataDir, getUserHomeDir } from '../utils';
 
 export const DEFAULT_WIN_WIDTH = 1024;
@@ -147,7 +148,14 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
       !Array.isArray(parsed)
       ? parsed
       : {};
-  } catch {
+  } catch (error) {
+    // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it this once — EBUSY while an antivirus or backup pass holds it on Windows, EACCES after a permission change, EMFILE under descriptor pressure — and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent, silently and with the write reporting success. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      log.error(
+        `Could not read ${filePath}, so keys this build does not know may be dropped from it`,
+        error
+      );
+    }
     return {};
   }
 }

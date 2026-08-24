@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
+import log from 'electron-log';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -219,6 +220,7 @@ describe('UserSettings', () => {
       const us = new UserSettings(true);
       us.save();
 
+      // These two are for the merge, not for the read: swapping `{ ...onDisk }` for `Object.assign({}, onDisk)` is what makes them fire, since assign sets where spread defines. Measured: with the read walking the file instead of the enum, the test still goes red with both of them deleted, and the assertion below is what catches that one.
       expect(({} as any).value).toBeUndefined();
       expect(({} as any).pwned).toBeUndefined();
       // and it is still written back, rather than dropped
@@ -253,7 +255,42 @@ describe('UserSettings', () => {
     expect(({} as any).c).toBeUndefined();
   });
 
-  it('takes nothing from a file whose top level is not an object', () => {
+  // The catch used to swallow both cases the same way, and merging over {} deletes every key this build does not know: the loss this merge exists to prevent, with the write reporting success.
+  it('says so when the file is there and could not be read', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    let reads = 0;
+    mockFs.readFileSync = vi.fn(() => {
+      // readable at construction, unreadable by the time save re-reads it
+      if (reads++ === 0) {
+        return Buffer.from('{"futureSetting":42,"theme":"dark"}');
+      }
+      throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+    }) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.save();
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('may be dropped'),
+      expect.anything()
+    );
+  });
+
+  it('says nothing when the file is simply absent', () => {
+    mockFs.existsSync = vi.fn(() => false);
+    mockFs.readFileSync = vi.fn(() => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    new UserSettings(true).save();
+
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  // `[1,2,3]` is the only non-object shape that survives read(): null, a number and a string all throw out of `key in jsonData`, and that throw is #1115's to catch, not this branch's.
+  it('takes nothing from an array at the top level', () => {
     mockFs.existsSync = vi.fn(() => true);
     mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;
     mockFs.writeFileSync = vi.fn();

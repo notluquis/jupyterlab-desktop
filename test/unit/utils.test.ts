@@ -1033,8 +1033,9 @@ describe('writeJsonConfigFile', () => {
     mockFs.lstatSync = vi.fn(() => {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     }) as any;
+    // the same string the source passes, with no path.resolve of its own: resolve turns the POSIX literal into `\data` on Windows while the source's dirname leaves it `/data`, which is the mismatch this used to fail on
     mockFs.statSync = vi.fn((target: string) => {
-      if (target === path.dirname(path.resolve('/data/fresh.json'))) {
+      if (target === path.dirname('/data/fresh.json')) {
         return { uid: 501, gid: 20, mode: 0o40755 } as any;
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });

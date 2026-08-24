@@ -314,7 +314,7 @@ export class UserSettings {
   }
 
   /**
-   * The file as it is on disk, with this object's settings written over it. Rebuilding from the settings alone deletes every key the build has no setting for, and every value the read declined to take.
+   * The file as it is on disk, with this object's settings written over it. Rebuilding from the settings alone deletes every key the build has no setting for. It does not preserve a value the read declined to take: a key this build owns is written or deleted by the decision below, and `UserSettings.save` deletes any that equals its default, which is what a declining read leaves behind. Keeping those is #1116's question, not this one's.
    */
   protected _merged(
     onDisk: { [key: string]: any },

@@ -323,7 +323,23 @@ describe('UserSettings', () => {
     expect(vi.mocked(log.error).mock.calls).toHaveLength(2);
   });
 
-  // Rejected for its shape rather than for a parse failure, and it wipes the file the same way, so it cannot be the one case that says nothing.
+  // Rejected for its shape rather than for a parse failure, and it wipes the file the same way, so it cannot be the one case that says nothing. `new UserSettings(false)` skips read(), so save() reaches the guard with shapes that read() would have thrown on first. Both arms are deletable with every other test still green without these.
+  it.each([
+    ['null', 'null'],
+    ['a number', '42'],
+    ['a string', '"x"']
+  ])('reports a top level that is %s', (_name, raw) => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn(() => Buffer.from(raw)) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    new UserSettings(false).save();
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('holds no JSON object')
+    );
+  });
+
   it('says so when the top level is not an object', () => {
     mockFs.existsSync = vi.fn(() => true);
     mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;
@@ -348,6 +364,26 @@ describe('UserSettings', () => {
     us.save();
 
     expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
+  });
+
+  // The whole point of merging rather than rebuilding: what this object holds wins over what the file holds for a key this build owns. Untested until now, and a mutation that only writes a key absent from the file left every test in this suite green.
+  it('writes its own value over the one already in the file', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn(() =>
+      Buffer.from('{"theme":"light","futureSetting":42}')
+    ) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.setValue(SettingType.theme, ThemeType.Dark);
+    us.save();
+
+    const written = JSON.parse(
+      (mockFs.writeFileSync as any).mock.calls[0][1] as string
+    );
+    expect(written.theme).toBe(ThemeType.Dark);
+    // and the key it does not own is still there, which is the other half
+    expect(written.futureSetting).toBe(42);
   });
 
   // Two breakages of the same file are two different things to repair, and the mark used to remember only that the path had been reported, so the second stayed silent with the first one's wording standing in the log. The repaired-and-broke-again test above does not cover this: it puts a valid object between the two, which clears the mark for the wrong reason.

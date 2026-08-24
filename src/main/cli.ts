@@ -1028,6 +1028,7 @@ function handleConfigSetCommand(argv: any) {
     return;
   }
 
+  let saved: boolean;
   if (projectPath) {
     const setting = userSettings.settings[key];
     if (!setting.wsOverridable) {
@@ -1037,10 +1038,18 @@ function handleConfigSetCommand(argv: any) {
 
     const wsSettings = new WorkspaceSettings(projectPath);
     wsSettings.setValue(key as SettingType, value);
-    wsSettings.save();
+    saved = wsSettings.save();
   } else {
     userSettings.setValue(key as SettingType, value);
-    userSettings.save();
+    saved = userSettings.save();
+  }
+
+  // save now declines when the file is there and could not be read, so printing success without asking would tell somebody their setting landed while the file was left untouched
+  if (!saved) {
+    console.error(
+      `Could not write the settings file, so "${key}" was not saved. The log names the file and why.`
+    );
+    return;
   }
 
   console.log(

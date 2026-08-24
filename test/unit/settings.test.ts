@@ -444,6 +444,20 @@ describe('UserSettings', () => {
     expect(breakages(['{"a":1}', 'EBUSY', '{"theme":"dark",}'])).toBe(2);
   });
 
+  // The boolean exists so a caller can tell; without it `jlab config set` printed success over a write that was declined.
+  it('reports the refusal to its caller', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    let n = 0;
+    mockFs.readFileSync = vi.fn(() =>
+      Buffer.from(n++ === 0 ? '{"a":1}' : '[1,2,3]')
+    ) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+
+    expect(us.save()).toBe(false);
+  });
+
   it('says nothing when the file is simply absent', () => {
     mockFs.existsSync = vi.fn(() => false);
     mockFs.readFileSync = vi.fn(() => {

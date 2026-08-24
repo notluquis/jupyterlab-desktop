@@ -144,7 +144,7 @@ const reportedUnreadable = new Map<
 >();
 
 /** Say once per path that the file was there and unusable, and give back the empty object the caller merges over. */
-function reportRejected(filePath: string): { [key: string]: any } {
+function reportRejected(filePath: string): undefined {
   reportOnce(
     filePath,
     'shape',
@@ -197,7 +197,7 @@ function readJsonFileOrEmpty(
     reportedUnreadable.delete(filePath);
     return parsed;
   } catch (error) {
-    // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it, and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent. The case that actually reaches the write is the parse failure: `userSettings` is constructed once at import, so a user who follows troubleshoot.md and hand-edits settings.json while the app runs, leaving a trailing comma, gets the SyntaxError caught here and will-quit rewrites the file without their edit. An EBUSY or EACCES would fail the writeFileSync below as well, so those throw rather than lose quietly. Say so; the shared reader in #1115 refuses the write outright, which is the better answer and is not this branch's to add.
+    // Absent is the ordinary case and merging over nothing is right for it. Anything else means the file is there and we could not read it, and merging over {} would delete every key this build does not know, which is the loss this merge exists to prevent. The case that actually reaches the write is the parse failure: `userSettings` is constructed once at import, so a user who follows troubleshoot.md and hand-edits settings.json while the app runs, leaving a trailing comma, gets the SyntaxError caught here and will-quit rewrites the file without their edit. Measured on darwin: a settings.json at mode 0200 gives EACCES on the read and OK on the write, because writeFileSync opens O_WRONLY and never reads, so a read failure does not imply a write failure and the loss lands. The file is left alone instead, which is what #1115's shared reader will do through a different route.
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       // gone rather than broken, so whatever was reported about it no longer describes anything
       reportedUnreadable.delete(filePath);
@@ -312,12 +312,12 @@ export class UserSettings {
     }
   }
 
-  save() {
+  save(): boolean {
     const userSettingsPath = UserSettings.getUserSettingsPath();
     const onDisk = readJsonFileOrEmpty(userSettingsPath);
     // Absent is `{}` and merging over nothing is right for it. Undefined means the file is there and we could not read it, and writing anyway is the loss this merge exists to prevent: measured on darwin, a settings.json at mode 0200 gives EACCES on the read and OK on the write, because writeFileSync opens O_WRONLY and never reads. A read failure does not imply a write failure.
     if (onDisk === undefined) {
-      return;
+      return false;
     }
     const userSettings = this._merged(onDisk, key => {
       const setting = this._settings[key];
@@ -328,6 +328,7 @@ export class UserSettings {
     });
 
     fs.writeFileSync(userSettingsPath, JSON.stringify(userSettings, null, 2));
+    return true;
   }
 
   /**
@@ -420,7 +421,7 @@ export class WorkspaceSettings extends UserSettings {
     }
   }
 
-  save() {
+  save(): boolean {
     const wsSettingsPath = WorkspaceSettings.getWorkspaceSettingsPath(
       this._workingDirectory
     );
@@ -429,7 +430,7 @@ export class WorkspaceSettings extends UserSettings {
     const onDisk = readJsonFileOrEmpty(wsSettingsPath);
     // same as the user file above: there and unreadable means leave it alone
     if (onDisk === undefined) {
-      return;
+      return false;
     }
     const wsSettings = this._merged(onDisk, key => {
       // a key a project cannot override is not this file's to remove, even though it does nothing here
@@ -455,6 +456,8 @@ export class WorkspaceSettings extends UserSettings {
       fs.mkdirSync(path.dirname(wsSettingsPath), { recursive: true });
       fs.writeFileSync(wsSettingsPath, JSON.stringify(wsSettings, null, 2));
     }
+    // true also when there was nothing to write and no file to clear, which is not a failure. #1114 carries the case where a caller reads that as a value having been persisted.
+    return true;
   }
 
   private _isDifferentThanUserSetting(setting: SettingType): boolean {

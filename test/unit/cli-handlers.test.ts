@@ -343,6 +343,25 @@ describe('reporting a refused write', () => {
     err.mockRestore();
   });
 
+  // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: stderr carries the message and the status stays 0, which automation cannot tell from success.
+  it('leaves a non-zero exit status behind', async () => {
+    const previous = process.exitCode;
+    process.exitCode = 0;
+    refuseSaves();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFs.existsSync = vi.fn(() => true);
+
+    try {
+      await handleEnvSetCondaPathCommand({
+        _: ['set-conda-path', '/usr/bin/conda']
+      });
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previous;
+      err.mockRestore();
+    }
+  });
+
   it('points at the unreadable file instead when that is the reason', async () => {
     refuseSaves();
     (utilsModule as any).configFileIsUnreadable = vi.fn(() => true);

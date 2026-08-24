@@ -1070,6 +1070,26 @@ describe('writeJsonConfigFile', () => {
     expect(mockFs.fchownSync).not.toHaveBeenCalled();
   });
 
+  // A filesystem with no fsync is not a filesystem that failed to write. On a CIFS or gvfs home this used to lose every settings change, where master's plain writeFileSync worked, and syncDirectoryEntry already concedes the same case one call below.
+  it('saves anyway when the filesystem does not implement fsync', () => {
+    mockFs.fsyncSync = vi.fn(() => {
+      throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
+    }) as any;
+
+    expect(writeJsonConfigFile('/data/nofsync.json', {})).toBe(true);
+    expect(mockFs.renameSync).toHaveBeenCalled();
+  });
+
+  it('fails the save when fsync reports a real I/O error', () => {
+    mockFs.fsyncSync = vi.fn(() => {
+      throw Object.assign(new Error('EIO'), { code: 'EIO' });
+    }) as any;
+
+    // the bytes genuinely may not be there, so publishing the name over the old file would be a lie
+    expect(writeJsonConfigFile('/data/eio-fsync.json', {})).toBe(false);
+    expect(mockFs.renameSync).not.toHaveBeenCalled();
+  });
+
   it('follows a dangling link to the path it names', () => {
     mockFs.lstatSync = vi.fn(() => ({ isSymbolicLink: () => true })) as any;
     mockFs.readlinkSync = vi.fn(() => '/dotfiles/settings.json') as any;

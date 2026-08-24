@@ -896,6 +896,9 @@ function settingsFilePathFor(projectPath?: string): string {
 }
 
 function reportUnsavedSetting(what: string, projectPath?: string): void {
+  // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: the message goes to stderr and the status stays 0, which automation cannot tell from success. Set rather than process.exit, so the handler finishes and the process ends on its own. getProjectPathForConfigCommand is the file's own precedent for a non-zero status on a user-visible refusal.
+  process.exitCode = 1;
+
   const file = settingsFilePathFor(projectPath);
 
   // Both files, because a workspace save is refused when the *global* one could not be read: a project override is only persisted when it differs from the user value, and that value comes from the global file. Naming the workspace file there would point the reader at a healthy one and withhold the only actionable half of the message.

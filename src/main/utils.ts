@@ -170,7 +170,18 @@ export function writeJsonConfigFile(
     carryOwnership(fd, existing ?? statOrUndefined(path.dirname(targetPath)));
     fs.writeFileSync(fd, contents);
     // rename publishes the name, not the bytes: without this a power cut can leave a good filename on an empty file
-    fs.fsyncSync(fd);
+    try {
+      fs.fsyncSync(fd);
+    } catch (error) {
+      // A filesystem that does not implement fsync is not one that failed to write. CIFS and some gvfs mounts answer EINVAL or ENOTSUP, and treating that as a failed save would lose every settings change on a network home, where master's plain writeFileSync worked. syncDirectoryEntry already concedes the same case. A real I/O error still fails the save, because there the bytes genuinely may not be there.
+      if (!UNSUPPORTED.has((error as NodeJS.ErrnoException)?.code)) {
+        throw error;
+      }
+      log.debug(
+        `Could not flush ${filePath}, the filesystem does not implement it`,
+        error
+      );
+    }
     // cleared before the close, not after: close releases the descriptor even when it reports an error, so a throw here must not send the catch back to close a number that now belongs to somebody else
     const toClose = fd;
     fd = undefined;
@@ -245,7 +256,7 @@ function isBlank(contents: string): boolean {
 }
 
 /**
- * `contents` without the NULs at its end. A scan rather than `replace(/\0+$/, '')`, whose anchor retries from every position when the run is followed by anything else, which is what a file torn in the middle is. This runs while the config modules are still importing, so the cost lands before any window: 214 ms at 20 KB of interior NULs, 3.2 s at 80, 22.7 s at 200.
+ * `contents` without the NULs at its end. A backward scan, which is linear and has nothing to backtrack over. The obvious `replace(/\0+$/, '')` is what it replaced: its anchor retries from every position when the run is followed by anything else, which is what a file torn in the middle is, and that shape was measured at 214 ms for 20 KB of interior NULs, 3.2 s at 80 and 22.7 s at 200. Those numbers belong to the regex, not to the scan below, and this runs while the config modules are still importing, so either cost would land before any window.
  */
 function trimTrailingNuls(contents: string): string {
   let end = contents.length;
@@ -254,6 +265,9 @@ function trimTrailingNuls(contents: string): string {
   }
   return end === contents.length ? contents : contents.slice(0, end);
 }
+
+// errno values that mean "this filesystem has no fsync", as opposed to "the write failed"
+const UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP']);
 
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 

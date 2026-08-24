@@ -1181,7 +1181,10 @@ export function handleConfigUnsetCommand(argv: any) {
 
 function handleConfigOpenFileCommand(argv: any) {
   const projectPath = getProjectPathForConfigCommand(argv);
-  const settingsFilePath = settingsFilePathFor(projectPath);
+  // Not settingsFilePathFor, which routes through resolveWorkingDirectory: its lstatSync rejects a symlinked project directory and substitutes $HOME, while getProjectPathForConfigCommand validated the same argument with statSync, which follows the link. That would open somebody else's settings file for the user to hand-edit, silently, because $HOME is the default working directory and its file usually exists. master built the path from the unresolved argument here and this keeps doing that; the lstatSync itself is #1114's.
+  const settingsFilePath = projectPath
+    ? WorkspaceSettings.getWorkspaceSettingsPath(projectPath)
+    : UserSettings.getUserSettingsPath();
 
   console.log(`Settings file path: ${settingsFilePath}`);
 

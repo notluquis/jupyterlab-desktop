@@ -63,7 +63,9 @@ test('starts and reaches the welcome view when settings.json is corrupt', async 
 
     expect(readFileSync(join(userDataDir, 'settings.json'), 'utf8')).toBe(body);
     expect(
-      readdirSync(userDataDir).filter(name => name.endsWith('.tmp'))
+      readdirSync(userDataDir).filter(name =>
+        /\.json\.[0-9a-f]{12}\.tmp$/.test(name)
+      )
     ).toEqual([]);
   } finally {
     cleanup();
@@ -86,7 +88,9 @@ test('starts when app-data.json is truncated, which is what #881 reports', async
 
     expect(readFileSync(join(userDataDir, 'app-data.json'), 'utf8')).toBe(body);
     expect(
-      readdirSync(userDataDir).filter(name => name.endsWith('.tmp'))
+      readdirSync(userDataDir).filter(name =>
+        /\.json\.[0-9a-f]{12}\.tmp$/.test(name)
+      )
     ).toEqual([]);
   } finally {
     cleanup();

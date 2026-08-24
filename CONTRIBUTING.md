@@ -44,7 +44,7 @@ This project follows the [Jupyter Code of Conduct](https://github.com/jupyter/go
 
 JupyterLab Desktop bundles JupyterLab front-end and a conda environment as JupyterLab Desktop Server as its backend into an Electron application.
 
-`<platform>`: osx-64, osx-arm64, linux-64, linux-aarch64 or win-64. The `dist` scripts also take `win-arm64`, and `osx` for both macOS architectures at once. `package.json` is the list.
+`<platform>`: osx-64, osx-arm64, linux-64, linux-aarch64 or win-64. The `dist` scripts also take `osx`, for both macOS architectures at once. `package.json` is the list. `dist:win-arm64` exists but passes no `--win`, unlike every sibling, so on a non-Windows host it builds for the host platform instead and says nothing.
 
 - Get the project source code
 
@@ -98,7 +98,7 @@ export JLAB_TEST_PYTHON_PATH=/tmp/jlab-venv/bin/python
 
 On Linux, Playwright also needs its system libraries: `npx playwright install-deps`.
 
-Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules that are unit-testable; the window, view, dialog and preload surfaces are integration code covered by the e2e suite. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
+Coverage is configured in `vitest.config.ts` with `all: true` over an explicit `include` list, so untested branches in those files count against the thresholds even when no test imports them. The list is scoped to the main-process logic modules, and leaves out the window, view, dialog and preload surfaces so that code a unit test cannot reach without a running Electron process does not dilute the denominator. Being outside the list is not the same as being untested: `test/unit/preload` alone holds twelve specs, and several of those surfaces have unit tests of their own. It only means no coverage floor is enforced on them. Besides the aggregate floor, several well-covered modules are locked at their current level so a later change cannot silently regress them.
 
 Three more checks run in CI and are worth running before pushing:
 
@@ -108,7 +108,7 @@ yarn lint:check           # prettier --check and eslint, no writes, run by publi
 yarn check_version_match  # desktop against bundled JupyterLab version, run by publish.yml
 ```
 
-`yarn lint` is the same two as `lint:check` with fixes applied. CI never runs it, since a job that rewrites the tree would have nowhere to put the result.
+`yarn lint` is the same two with fixes applied, and CI never runs it, since a job that rewrites the tree would have nowhere to put the result. It also starts with a bare `yarn`, so it reinstalls dependencies and can rewrite `yarn.lock`; `lint:check` does not.
 
 Prettier is pinned in `devDependencies` and its config is `.prettierrc`. The trap is the config rather than the binary: run against a file outside the project tree, prettier finds no `.prettierrc` to inherit, falls back to its defaults and reports wrapping differences that do not exist. Pass the config explicitly when checking anything that is not in place: `./node_modules/.bin/prettier --config ./.prettierrc --check <file>`.
 

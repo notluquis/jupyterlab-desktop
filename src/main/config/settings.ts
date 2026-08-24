@@ -148,9 +148,9 @@ function reportRejected(filePath: string): { [key: string]: any } {
   reportOnce(
     filePath,
     'shape',
-    `${filePath} holds no JSON object, so keys this build does not know may be dropped from it`
+    `${filePath} holds no JSON object, so the file is left alone until it is repaired`
   );
-  return {};
+  return undefined;
 }
 
 /**
@@ -181,7 +181,9 @@ export function resetUnreadableReports(): void {
 /**
  * What the file holds right now, or nothing when it is absent or unusable. save merges over this rather than rebuilding, so a read that fails here costs the keys this build does not know rather than corrupting the ones it does; #1115 replaces this with the shared reader.
  */
-function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
+function readJsonFileOrEmpty(
+  filePath: string
+): { [key: string]: any } | undefined {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath).toString());
     if (
@@ -206,18 +208,18 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
       reportOnce(
         filePath,
         'malformed',
-        `${filePath} is not valid JSON, so keys this build does not know may be dropped from it`,
+        `${filePath} is not valid JSON, so the file is left alone until it is repaired`,
         error
       );
-      return {};
+      return undefined;
     }
     reportOnce(
       filePath,
       'unreadable',
-      `Could not read ${filePath}, so keys this build does not know may be dropped from it`,
+      `Could not read ${filePath}, so the file is left alone until it is repaired`,
       error
     );
-    return {};
+    return undefined;
   }
 }
 
@@ -312,16 +314,18 @@ export class UserSettings {
 
   save() {
     const userSettingsPath = UserSettings.getUserSettingsPath();
-    const userSettings = this._merged(
-      readJsonFileOrEmpty(userSettingsPath),
-      key => {
-        const setting = this._settings[key];
-        // every key of SettingType is one this build owns, so one matching its default does not belong in the file, whatever the file holds
-        return setting.differentThanDefault
-          ? { kind: 'write', value: setting.value }
-          : { kind: 'delete' };
-      }
-    );
+    const onDisk = readJsonFileOrEmpty(userSettingsPath);
+    // Absent is `{}` and merging over nothing is right for it. Undefined means the file is there and we could not read it, and writing anyway is the loss this merge exists to prevent: measured on darwin, a settings.json at mode 0200 gives EACCES on the read and OK on the write, because writeFileSync opens O_WRONLY and never reads. A read failure does not imply a write failure.
+    if (onDisk === undefined) {
+      return;
+    }
+    const userSettings = this._merged(onDisk, key => {
+      const setting = this._settings[key];
+      // every key of SettingType is one this build owns, so one matching its default does not belong in the file, whatever the file holds
+      return setting.differentThanDefault
+        ? { kind: 'write', value: setting.value }
+        : { kind: 'delete' };
+    });
 
     fs.writeFileSync(userSettingsPath, JSON.stringify(userSettings, null, 2));
   }
@@ -422,25 +426,27 @@ export class WorkspaceSettings extends UserSettings {
     );
     // uiMode needs special handling, it needs to be saved even if same as global default.
     // this is due to automatically setting uiMode to Zen for default for opening single file
-    const wsSettings = this._merged(
-      readJsonFileOrEmpty(wsSettingsPath),
-      key => {
-        // a key a project cannot override is not this file's to remove, even though it does nothing here
-        if (!this._settings[key].wsOverridable) {
-          return { kind: 'leave' };
-        }
-        const setting = this._wsSettings[key];
-        if (
-          setting &&
-          (key === SettingType.uiMode ||
-            this._isDifferentThanUserSetting(key as SettingType))
-        ) {
-          return { kind: 'write', value: setting.value };
-        }
-        // unsetValue takes it out of _wsSettings, and an override matching the global value is not an override any more
-        return { kind: 'delete' };
+    const onDisk = readJsonFileOrEmpty(wsSettingsPath);
+    // same as the user file above: there and unreadable means leave it alone
+    if (onDisk === undefined) {
+      return;
+    }
+    const wsSettings = this._merged(onDisk, key => {
+      // a key a project cannot override is not this file's to remove, even though it does nothing here
+      if (!this._settings[key].wsOverridable) {
+        return { kind: 'leave' };
       }
-    );
+      const setting = this._wsSettings[key];
+      if (
+        setting &&
+        (key === SettingType.uiMode ||
+          this._isDifferentThanUserSetting(key as SettingType))
+      ) {
+        return { kind: 'write', value: setting.value };
+      }
+      // unsetValue takes it out of _wsSettings, and an override matching the global value is not an override any more
+      return { kind: 'delete' };
+    });
 
     // Write when there is something to persist, or when a previous file needs
     // to be cleared. mkdir is unconditional: recursive mode is a no-op when the

@@ -282,7 +282,7 @@ describe('UserSettings', () => {
     us.save();
 
     expect(log.error).toHaveBeenCalledWith(
-      expect.stringContaining('may be dropped'),
+      expect.stringContaining('left alone until it is repaired'),
       expect.anything()
     );
   });
@@ -457,7 +457,7 @@ describe('UserSettings', () => {
   });
 
   // `[1,2,3]` is the only non-object shape that survives read(): null, a number and a string all throw out of `key in jsonData`, and that throw is #1115's to catch, not this branch's.
-  it('takes nothing from an array at the top level', () => {
+  it('leaves an array at the top level alone rather than writing over it', () => {
     mockFs.existsSync = vi.fn(() => true);
     mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;
     mockFs.writeFileSync = vi.fn();
@@ -465,11 +465,8 @@ describe('UserSettings', () => {
     const us = new UserSettings(true);
     us.save();
 
-    // spreading an array would have written {"0":1,"1":2,"2":3}
-    const written = JSON.parse(
-      (mockFs.writeFileSync as any).mock.calls[0][1] as string
-    );
-    expect(written).toEqual({});
+    // the file is there and unusable, so it is left for the user to repair rather than overwritten with what this build happens to hold
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
   });
 
   it('drops a key whose value is back to the default', () => {

@@ -223,7 +223,7 @@ describe('UserSettings', () => {
 
       // What each of these is worth, measured rather than assumed, after two earlier versions of this comment got it wrong.
       //
-      // Against `read` walking the file instead of the enum: no assertion fires at all. The test dies first with `TypeError: Invalid property descriptor`, out of the assignment itself. The mutation is caught, by the throw, and leaving only one assertion in place does not tell you which one caught it — it tells you the throw happened before it.
+      // Against `read` walking the file instead of the enum: no assertion fires at all. The test dies first with `TypeError: Invalid property descriptor`, out of the assignment itself. The mutation is caught, by the throw, and leaving only one assertion in place does not tell you which one caught it, it tells you the throw happened before it.
       //
       // Against the merge, `{ ...onDisk }` swapped for `Object.assign({}, onDisk)`: only the round-trip below fires. Assign invokes the `__proto__` setter on `merged`, which retargets that object's own prototype and never touches `Object.prototype`, so neither probe can see it.
       //
@@ -334,6 +334,20 @@ describe('UserSettings', () => {
     expect(log.error).toHaveBeenCalledWith(
       expect.stringContaining('holds no JSON object')
     );
+  });
+
+  // Clearing the mark before the shape check undid the dedup for exactly this case: a file that parses and is not an object logged on every save while a parse failure logged once.
+  it('reports a rejected shape once, not on every save', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    mockFs.readFileSync = vi.fn(() => Buffer.from('[1,2,3]')) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const us = new UserSettings(true);
+    us.save();
+    us.save();
+    us.save();
+
+    expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
   });
 
   it('says nothing when the file is simply absent', () => {

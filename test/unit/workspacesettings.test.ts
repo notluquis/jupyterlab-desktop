@@ -15,6 +15,7 @@ vi.mock('fs', async () => {
 });
 
 import {
+  resetUnreadableReports,
   SettingType,
   ThemeType,
   UIMode,
@@ -22,6 +23,11 @@ import {
 } from '../../src/main/config/settings';
 
 const mockFs = vi.mocked(fs);
+
+// The reported-unreadable set is module state and outlives a test, so without this a later one inherits a path already reported and reads as silent.
+beforeEach(() => {
+  resetUnreadableReports();
+});
 
 describe('WorkspaceSettings.getWorkspaceSettingsPath', () => {
   it('returns .jupyter/desktop-settings.json inside working dir', () => {
@@ -34,12 +40,12 @@ describe('WorkspaceSettings.getWorkspaceSettingsPath', () => {
   });
 });
 
-describe('WorkspaceSettings — no workspace file', () => {
+describe('WorkspaceSettings, no workspace file', () => {
   beforeEach(() => {
     // user settings file does not exist, workspace settings file does not exist
     mockFs.existsSync = vi.fn(() => false);
     mockFs.readFileSync = vi.fn(() => {
-      throw new Error('ENOENT');
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
   });
 
@@ -60,7 +66,7 @@ describe('WorkspaceSettings — no workspace file', () => {
   });
 });
 
-describe('WorkspaceSettings — with workspace file', () => {
+describe('WorkspaceSettings, with workspace file', () => {
   beforeEach(() => {
     mockFs.existsSync = vi.fn((p: fs.PathLike) => {
       return p.toString().includes('desktop-settings.json');
@@ -72,7 +78,7 @@ describe('WorkspaceSettings — with workspace file', () => {
           JSON.stringify({ serverArgs: '--no-browser', uiMode: 'zen' })
         );
       }
-      throw new Error('ENOENT');
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
   });
 
@@ -107,7 +113,7 @@ describe('WorkspaceSettings setValue / unsetValue', () => {
   beforeEach(() => {
     mockFs.existsSync = vi.fn(() => false);
     mockFs.readFileSync = vi.fn(() => {
-      throw new Error('ENOENT');
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
   });
 
@@ -138,7 +144,7 @@ describe('WorkspaceSettings save', () => {
   beforeEach(() => {
     mockFs.existsSync = vi.fn(() => false);
     mockFs.readFileSync = vi.fn(() => {
-      throw new Error('ENOENT');
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
     mockFs.writeFileSync = vi.fn();
     mockFs.mkdirSync = vi.fn();
@@ -170,7 +176,7 @@ describe('WorkspaceSettings save', () => {
   });
 });
 
-describe('WorkspaceSettings — keys it does not claim', () => {
+describe('WorkspaceSettings, keys it does not claim', () => {
   const written = () =>
     JSON.parse(vi.mocked(fs.writeFileSync).mock.calls[0][1] as string);
 

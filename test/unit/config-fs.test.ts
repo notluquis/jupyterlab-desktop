@@ -133,18 +133,17 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     }
   );
 
-  posixOnly('refuses to follow a symlink left at its temporary name', () => {
-    // the temporary name carries this process's pid, which is guessable, and a run as root would otherwise truncate and chown whatever the link names
+  // The temporary used to be named after the pid, so a symlink could be planted at it and a run as root would truncate and chown whatever it named. An unpredictable name removes the plant rather than only failing closed on it, and there is no longer a name for a test to point at: that the name is unpredictable is asserted in utils.test.ts, against the mocked openSync, which is the only place it can be observed before the rename takes it away. What a real filesystem can still say is that repeated writes leave nothing behind.
+  it('leaves no temporary behind across repeated writes', () => {
     const target = path.join(dir, 'settings.json');
-    const decoy = path.join(dir, 'decoy');
-    fs.writeFileSync(decoy, 'not mine to touch');
-    fs.symlinkSync(decoy, `${target}.${process.pid}.tmp`);
 
-    expect(writeJsonConfigFile(target, { theme: 'dark' })).toBe(true);
+    for (let i = 0; i < 5; i++) {
+      expect(writeJsonConfigFile(target, { theme: `t${i}` })).toBe(true);
+    }
 
-    expect(fs.readFileSync(decoy, 'utf8')).toBe('not mine to touch');
+    expect(fs.readdirSync(dir).filter(n => n.endsWith('.tmp'))).toEqual([]);
     expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual({
-      theme: 'dark'
+      theme: 't4'
     });
   });
 

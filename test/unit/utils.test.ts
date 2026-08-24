@@ -972,15 +972,18 @@ describe('writeJsonConfigFile', () => {
       true
     );
 
-    const tempPath = `/data/write.json.${process.pid}.tmp`;
-    // wx, so a symlink left at the temporary name is refused rather than followed, and 0600 because nothing existed to carry a mode from
-    expect(mockFs.openSync).toHaveBeenCalledWith(tempPath, 'wx', 0o600);
+    // The name is unpredictable by design, so the shape is what there is to assert. wx, so a symlink left at that name is refused rather than followed, and 0600 because nothing existed to carry a mode from.
+    expect(mockFs.openSync).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/data\/write\.json\.[0-9a-f]{12}\.tmp$/),
+      'wx',
+      0o600
+    );
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       7,
       JSON.stringify({ theme: 'dark' }, null, 2)
     );
     expect(mockFs.renameSync).toHaveBeenCalledWith(
-      tempPath,
+      expect.stringMatching(/^\/data\/write\.json\.[0-9a-f]{12}\.tmp$/),
       '/data/write.json'
     );
   });
@@ -1126,7 +1129,7 @@ describe('writeJsonConfigFile', () => {
     // the target the link names, not the link's own directory. Resolved here because a bare '/dotfiles/...' picks up the current drive on Windows.
     const target = path.resolve('/dotfiles/settings.json');
     expect(mockFs.renameSync).toHaveBeenCalledWith(
-      `${target}.${process.pid}.tmp`,
+      expect.stringMatching(/\.[0-9a-f]{12}\.tmp$/),
       target
     );
   });
@@ -1192,7 +1195,8 @@ describe('writeJsonConfigFile', () => {
       true
     );
 
-    const tempPath = `/dotfiles/settings.json.${process.pid}.tmp`;
+    const tempPath = (mockFs.openSync as any).mock.calls[0][0] as string;
+    expect(tempPath).toMatch(/^\/dotfiles\/settings\.json\.[0-9a-f]{12}\.tmp$/);
     expect(mockFs.openSync).toHaveBeenCalledWith(tempPath, 'wx', 0o600);
     expect(mockFs.renameSync).toHaveBeenCalledWith(
       tempPath,
@@ -1211,7 +1215,7 @@ describe('writeJsonConfigFile', () => {
       false
     );
     expect(mockFs.unlinkSync).toHaveBeenCalledWith(
-      `/data/busy.json.${process.pid}.tmp`
+      expect.stringMatching(/^\/data\/busy\.json\.[0-9a-f]{12}\.tmp$/)
     );
   });
 });

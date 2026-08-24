@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'crypto';
 import * as semver from 'semver';
 import * as tar from 'tar';
 import * as os from 'os';
@@ -148,8 +149,8 @@ export function writeJsonConfigFile(
     existing = statOrUndefined(targetPath);
   }
 
-  // the pid keeps a second instance from writing through the same temporary
-  const tempPath = `${targetPath}.${process.pid}.tmp`;
+  // A name nobody can predict, rather than the pid. Two reasons, both taken from write-file-atomic, which hashes the module path, the pid, the thread id and a counter for the same purpose. `process.pid` is not unique inside a worker thread, so it does not actually keep two writers apart; and a predictable name is what makes the planted-symlink race worth defending against at all, so removing the prediction is better than only failing closed on it. The cost, and it is real: a process killed between the open and the rename leaves a temporary nothing will collect, where the pid form left at most one per pid. #1114 carries the sweep.
+  const tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`;
   let fd: number | undefined;
 
   try {
@@ -172,7 +173,8 @@ export function writeJsonConfigFile(
       : newFile === 'private'
       ? 0o600
       : undefined;
-    fd = openExclusive(tempPath, mode ?? 0o666);
+    // 'wx' rather than 'w', so a symlink planted at this name fails the open instead of being followed and truncated. Kept as depth even though the name above is now unpredictable: it costs nothing and it is the property, not the odds, that the comment is about. Opened at the mode it will end up with, so the file is never briefly wider than the one it replaces, which is why the mode argument is not redundant with the fchmod below.
+    fd = fs.openSync(tempPath, 'wx', mode ?? 0o666);
     if (mode !== undefined) {
       // the umask narrows openSync's mode argument on the way through and does not touch fchmod, so this is what actually lands the group and other bits
       fs.fchmodSync(fd, mode);
@@ -323,21 +325,6 @@ function statOrUndefined(
   } catch {
     // nothing there yet, so nothing to carry across
     return undefined;
-  }
-}
-
-/**
- * O_EXCL, so the open fails rather than following a symlink somebody left at the name. The name carries this process's pid, so an existing one is either a temporary a previous run with that pid left behind, or a plant; unlinking removes the link itself rather than whatever it points at, and no live process shares the pid.
- */
-function openExclusive(tempPath: string, mode: number): number {
-  try {
-    return fs.openSync(tempPath, 'wx', mode);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-      throw error;
-    }
-    fs.unlinkSync(tempPath);
-    return fs.openSync(tempPath, 'wx', mode);
   }
 }
 

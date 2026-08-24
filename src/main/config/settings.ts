@@ -138,7 +138,10 @@ export namespace Setting {
 }
 
 // Reported once per path per run. Eighteen call sites reach save(), so a condition that persists, an antivirus pass holding the file, a permission that stayed wrong, would otherwise put the same line in the log on every settings change, which is the reason this repository already gives for leaving the directory flush at debug.
-const reportedUnreadable = new Map<string, 'unreadable' | 'shape'>();
+const reportedUnreadable = new Map<
+  string,
+  'unreadable' | 'malformed' | 'shape'
+>();
 
 /** Say once per path that the file was there and unusable, and give back the empty object the caller merges over. */
 function reportRejected(filePath: string): { [key: string]: any } {
@@ -155,7 +158,7 @@ function reportRejected(filePath: string): { [key: string]: any } {
  */
 function reportOnce(
   filePath: string,
-  kind: 'unreadable' | 'shape',
+  kind: 'unreadable' | 'malformed' | 'shape',
   message: string,
   error?: unknown
 ): void {
@@ -196,6 +199,16 @@ function readJsonFileOrEmpty(filePath: string): { [key: string]: any } {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       // gone rather than broken, so whatever was reported about it no longer describes anything
       reportedUnreadable.delete(filePath);
+      return {};
+    }
+    // A SyntaxError is the case this function's comment names as the one that reaches the write, and it is the one a reader can fix. Saying "could not read" about it sends them to look at permissions instead of at the trailing comma they just typed. Its own kind rather than reusing 'unreadable', or by the dedup's own rule a file that goes EACCES and then malformed would stay silent on the second break.
+    if (error instanceof SyntaxError) {
+      reportOnce(
+        filePath,
+        'malformed',
+        `${filePath} is not valid JSON, so keys this build does not know may be dropped from it`,
+        error
+      );
       return {};
     }
     reportOnce(

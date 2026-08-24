@@ -395,6 +395,9 @@ describe('UserSettings', () => {
       if (shape === 'GONE') {
         throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
       }
+      if (shape === 'EBUSY') {
+        throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+      }
       return Buffer.from(shape);
     }) as any;
     mockFs.writeFileSync = vi.fn();
@@ -417,6 +420,28 @@ describe('UserSettings', () => {
   // The file going away is not a repair, but whatever was reported about it no longer describes anything.
   it('reports again after the file disappeared in between', () => {
     expect(breakages(['{"a":1}', 'nope', 'GONE', 'nope'])).toBe(2);
+  });
+
+  // The case troubleshoot.md sends people into, and the one a reader can act on, so it must not be worded like a permission problem.
+  it('says the file is not valid JSON, not that it could not be read', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    let n = 0;
+    mockFs.readFileSync = vi.fn(() =>
+      Buffer.from(n++ === 0 ? '{"a":1}' : '{"theme":"dark",}')
+    ) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    new UserSettings(true).save();
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('is not valid JSON'),
+      expect.anything()
+    );
+  });
+
+  // Its own kind, or the dedup would swallow the second break after a different first one.
+  it('reports a malformed file after an unreadable one', () => {
+    expect(breakages(['{"a":1}', 'EBUSY', '{"theme":"dark",}'])).toBe(2);
   });
 
   it('says nothing when the file is simply absent', () => {

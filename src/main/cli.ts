@@ -903,13 +903,6 @@ function reportUnsavedSetting(
   projectPath?: string,
   { setsExitCode = true }: { setsExitCode?: boolean } = {}
 ): void {
-  // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: the message goes to stderr and the status stays 0, which automation cannot tell from success. Set rather than process.exit, so the handler finishes and the process ends on its own. getProjectPathForConfigCommand is the file's own precedent for a non-zero status on a user-visible refusal.
-  //
-  // Off for the callers that also run inside the long-lived GUI process, where nothing is about to exit: the status would sit there until the user quit hours later and then report the whole session as a failure to whatever launched it.
-  if (setsExitCode) {
-    process.exitCode = 1;
-  }
-
   const file = settingsFilePathFor(projectPath);
 
   // Both files, because a workspace save is refused when the *global* one could not be read: a project override is only persisted when it differs from the user value, and that value comes from the global file. Naming the workspace file there would point the reader at a healthy one and withhold the only actionable half of the message.
@@ -919,14 +912,20 @@ function reportUnsavedSetting(
   ].find(candidate => configFileIsUnreadable(candidate));
 
   // the refusal is far more often the read guard than a failed write, and only one of the two has something the reader can do about it
-  if (unreadable) {
-    console.error(
-      `${unreadable} could not be read, so ${what} was not saved. Repair the JSON in it, or move it aside and let a fresh one be written.`
-    );
-    return;
-  }
+  console.error(
+    unreadable
+      ? `${unreadable} could not be read, so ${what} was not saved. Repair the JSON in it, or move it aside and let a fresh one be written.`
+      : `Could not write ${file}, so ${what} was not saved.`
+  );
 
-  console.error(`Could not write ${file}, so ${what} was not saved.`);
+  // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: the message goes to stderr and the status stays 0, which automation cannot tell from success.
+  //
+  // process.exit rather than process.exitCode, which does not survive Electron's quit. Measured against the repo's own Electron 42: setting exitCode and calling app.quit() exits 0, while the quit event reports 0 and process.exitCode still reads 1. A test for it passes under vitest, which is plain Node, and proves nothing about the app. getProjectPathForConfigCommand a few lines up already does this, and every caller here returns immediately after.
+  //
+  // Off for the callers that also run inside the long-lived GUI process, where nothing is about to exit and killing it would be worse than a lost setting.
+  if (setsExitCode) {
+    process.exit(1);
+  }
 }
 
 export async function handleEnvSetCondaPathCommand(argv: any) {

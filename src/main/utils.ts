@@ -142,7 +142,8 @@ export function writeJsonConfigFile(
   // one lstat answers both "is it a link" and "what mode and owner does it have"; realpath walks the path with an lstat per component
   let targetPath = filePath;
   let existing = statOrUndefined(filePath, fs.lstatSync);
-  if (existing?.isSymbolicLink()) {
+  const followedLink = existing?.isSymbolicLink() === true;
+  if (followedLink) {
     targetPath = resolveConfigPath(filePath);
     existing = statOrUndefined(targetPath);
   }
@@ -157,7 +158,11 @@ export function writeJsonConfigFile(
     // recursive is a no-op when the directory is already there, and checking first only opens a race window
     const parent = path.dirname(targetPath);
     // mkdirSync returns the topmost directory it had to create, or undefined when there was nothing to do. Under sudo those are created root-owned, so a config landing in a directory this call just made would have had root:root to copy from and the fallback below would be a no-op: `.jupyter` inside a user's project is the case.
-    const createdRoot = fs.mkdirSync(parent, { recursive: true });
+    //
+    // Not for a link we followed, whose target names somebody else's tree. A config symlinked into a dotfiles repo on a volume that is not mounted would otherwise get the whole missing path built on the boot disk, the settings written into the shadow copy, and on macOS the real mount blocked. Skipping it leaves openExclusive to fail with ENOENT and the catch below to report it, which is what master's writeFileSync did.
+    const createdRoot = followedLink
+      ? undefined
+      : fs.mkdirSync(parent, { recursive: true });
     if (createdRoot) {
       carryOwnershipOntoPath(createdRoot, parent);
     }

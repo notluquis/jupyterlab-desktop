@@ -304,6 +304,15 @@ describe('reporting a refused write', () => {
     (appData as any).save = vi.fn(() => false);
   };
 
+  // every refusal here ends in process.exit, so the whole block needs it stubbed or the first one takes the worker with it
+  let exit: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    exit = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as any);
+  });
+  afterEach(() => exit.mockRestore());
+
   it('says the file could not be written, and does not claim success', async () => {
     refuseSaves();
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -344,9 +353,9 @@ describe('reporting a refused write', () => {
   });
 
   // `jlab config set ... && deploy.sh` runs the deploy either way otherwise: stderr carries the message and the status stays 0, which automation cannot tell from success.
-  it('leaves a non-zero exit status behind', async () => {
-    const previous = process.exitCode;
-    process.exitCode = 0;
+  //
+  // Asserted on process.exit rather than process.exitCode, because exitCode does not survive Electron's quit and a test for it passes under vitest, which is plain Node. That is the shape this repo calls a green test proving nothing.
+  it('exits non-zero rather than only reporting', async () => {
     refuseSaves();
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockFs.existsSync = vi.fn(() => true);
@@ -355,17 +364,14 @@ describe('reporting a refused write', () => {
       await handleEnvSetCondaPathCommand({
         _: ['set-conda-path', '/usr/bin/conda']
       });
-      expect(process.exitCode).toBe(1);
+      expect(exit).toHaveBeenCalledWith(1);
     } finally {
-      process.exitCode = previous;
       err.mockRestore();
     }
   });
 
   // addUserSetEnvironment is not CLI-only: app.ts calls it from the InstallBundledPythonEnv handler. A status left behind there sits on a process that is not exiting, and the app reports the whole session as a failure when the user quits hours later.
-  it('leaves the status alone on a path the GUI also reaches', () => {
-    const previous = process.exitCode;
-    process.exitCode = 0;
+  it('does not exit on a path the GUI also reaches', () => {
     refuseSaves();
     (userSettings as any).getValue = vi.fn(() => '');
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -377,10 +383,9 @@ describe('reporting a refused write', () => {
 
     try {
       addUserSetEnvironment('/envs/one', true);
-      expect(process.exitCode).toBe(0);
+      expect(exit).not.toHaveBeenCalled();
       expect(err).toHaveBeenCalled();
     } finally {
-      process.exitCode = previous;
       err.mockRestore();
       out.mockRestore();
     }

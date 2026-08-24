@@ -177,6 +177,16 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     }
   );
 
+  // A config symlinked into a dotfiles repo on a volume that is not mounted: mkdirSync with recursive would build the whole missing tree on the boot disk and write the settings into the shadow copy, which on macOS also blocks the real mount. master's writeFileSync failed with ENOENT and created nothing.
+  posixOnly('refuses a link whose target directory does not exist', () => {
+    const target = path.join(dir, 'settings.json');
+    const missing = path.join(dir, 'unmounted', 'jlab');
+    fs.symlinkSync(path.join(missing, 'settings.json'), target);
+
+    expect(writeJsonConfigFile(target, { theme: 'dark' })).toBe(false);
+    expect(fs.existsSync(missing)).toBe(false);
+  });
+
   it('cleans up its temporary when the rename cannot happen', () => {
     // a config path that is a directory: the temporary is created, the rename is the step that fails, which is the only way to reach the cleanup
     const target = path.join(dir, 'settings.json');

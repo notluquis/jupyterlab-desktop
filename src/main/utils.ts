@@ -160,7 +160,7 @@ export function writeJsonConfigFile(
     const parent = path.dirname(targetPath);
     // mkdirSync returns the topmost directory it had to create, or undefined when there was nothing to do. Under sudo those are created root-owned, so a config landing in a directory this call just made would have had root:root to copy from and the fallback below would be a no-op: `.jupyter` inside a user's project is the case.
     //
-    // Not for a link we followed, whose target names somebody else's tree. A config symlinked into a dotfiles repo on a volume that is not mounted would otherwise get the whole missing path built on the boot disk, the settings written into the shadow copy, and on macOS the real mount blocked. Skipping it leaves openExclusive to fail with ENOENT and the catch below to report it, which is what master's writeFileSync did.
+    // Not for a link we followed, whose target names somebody else's tree. A config symlinked into a dotfiles repo on a volume that is not mounted would otherwise get the whole missing path built on the boot disk, the settings written into the shadow copy, and on macOS the real mount blocked. Skipping it leaves the open below to fail with ENOENT and the catch to report it, which is what master's writeFileSync did.
     const createdRoot = followedLink
       ? undefined
       : fs.mkdirSync(parent, { recursive: true });
@@ -307,12 +307,19 @@ function resolveConfigPath(filePath: string): string {
   try {
     return fs.realpathSync(filePath);
   } catch {
-    try {
-      // ENOENT covers nothing-there and a link whose target is missing; only the second has something left to follow
-      return path.resolve(path.dirname(filePath), fs.readlinkSync(filePath));
-    } catch {
-      return filePath;
+    // ENOENT covers nothing-there and a link whose target is missing; only the second has something left to follow, and it has to be followed all the way. A dotfiles setup made by GNU Stow or chezmoi routinely produces `settings.json -> mid.json -> real.json`, and right after a clone the payload at the end is not materialised yet, which is exactly when realpathSync throws and this runs. Stopping at the first hop renames onto `mid.json` and unlinks the very link this function exists to preserve. The cap is for a cycle, which readlinkSync would otherwise walk forever.
+    let resolved = filePath;
+    for (let hops = 0; hops < 32; hops++) {
+      try {
+        resolved = path.resolve(
+          path.dirname(resolved),
+          fs.readlinkSync(resolved)
+        );
+      } catch {
+        return resolved;
+      }
     }
+    return resolved;
   }
 }
 

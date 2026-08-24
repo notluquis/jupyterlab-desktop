@@ -147,6 +147,24 @@ describe('writeJsonConfigFile on a real filesystem', () => {
     });
   });
 
+  // GNU Stow and chezmoi both produce chains, and right after a clone the payload at the end is not there yet, which is when the realpath fallback runs. Following one hop renames onto the middle link and unlinks it, which is the outcome the resolver exists to prevent.
+  posixOnly('follows a whole symlink chain, not one hop of it', () => {
+    const target = path.join(dir, 'settings.json');
+    const mid = path.join(dir, 'mid.json');
+    const real = path.join(dir, 'real.json');
+    fs.symlinkSync(real, mid);
+    fs.symlinkSync(mid, target);
+
+    expect(writeJsonConfigFile(target, { theme: 'dark' })).toBe(true);
+
+    // both links survive as links, and the payload landed at the end of the chain
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(mid).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(fs.readFileSync(real, 'utf8'))).toEqual({
+      theme: 'dark'
+    });
+  });
+
   posixOnly('creates a config nobody else can read', () => {
     // app-data.json holds recentRemoteURLs, whose entries carry a token in the query string, so the umask default is too generous to create it at
     const target = path.join(dir, 'app-data.json');

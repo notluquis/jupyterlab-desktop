@@ -26,22 +26,25 @@ async function launchWith(files: { [name: string]: string }) {
     rmSync(jupyterDir, { recursive: true, force: true });
   };
 
+  // Everything up to the return, not just the launch: a throw from firstWindow or from the stubAllDialogs retry escapes before the caller has anything to run its own finally on, and that leaves the Electron process alive and both temporary directories on disk for the rest of the CI run.
   let app;
   try {
     app = await electron.launch({
       args: ['.', `--user-data-dir=${userDataDir}`],
       env: { ...process.env, HOME: jupyterDir }
     });
+    // same order and the same retry as helpers.ts launchApp: stubAllDialogs evaluates the main process, and at launch a window can be mid-navigation
+    await app.firstWindow();
+    await stubAllDialogs(app).catch(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await stubAllDialogs(app);
+    });
   } catch (error) {
+    // close() needs a working connection, which is exactly what may have just failed
+    app?.process()?.kill();
     cleanup();
     throw error;
   }
-  // same order and the same retry as helpers.ts launchApp: stubAllDialogs evaluates the main process, and at launch a window can be mid-navigation
-  await app.firstWindow();
-  await stubAllDialogs(app).catch(async () => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    await stubAllDialogs(app);
-  });
 
   return { app, userDataDir, cleanup };
 }

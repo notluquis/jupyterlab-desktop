@@ -115,6 +115,7 @@ vi.mock('../../src/main/registry', () => ({ Registry: vi.fn() }));
 
 import {
   addUserSetEnvironment,
+  handleConfigOpenFileCommand,
   handleConfigSetCommand,
   handleConfigUnsetCommand,
   handleEnvActivateCommand,
@@ -126,6 +127,7 @@ import {
 } from '../../src/main/cli';
 import { appData } from '../../src/main/config/appdata';
 import { SettingType, userSettings } from '../../src/main/config/settings';
+import { resolveWorkingDirectory } from '../../src/main/config/settings';
 import * as envModule from '../../src/main/env';
 import * as utilsModule from '../../src/main/utils';
 
@@ -325,6 +327,9 @@ describe('reporting a refused write', () => {
   });
   afterEach(() => exit.mockRestore());
 
+  // The exit is no longer synchronous: it runs from an empty stderr write's callback, so that a message queued behind a full pipe reaches the reader before the process goes away. Without letting one tick run, these assert on an exit that has not been reached yet.
+  const flushed = () => new Promise(resolve => setImmediate(resolve));
+
   it('says the file could not be written, and does not claim success', async () => {
     refuseSaves();
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -376,6 +381,7 @@ describe('reporting a refused write', () => {
       await handleEnvSetCondaPathCommand({
         _: ['set-conda-path', '/usr/bin/conda']
       });
+      await flushed();
       expect(exit).toHaveBeenCalledWith(1);
     } finally {
       err.mockRestore();
@@ -383,7 +389,7 @@ describe('reporting a refused write', () => {
   });
 
   // addUserSetEnvironment is not CLI-only: app.ts calls it from the InstallBundledPythonEnv handler. A status left behind there sits on a process that is not exiting, and the app reports the whole session as a failure when the user quits hours later.
-  it('does not exit on a path the GUI also reaches', () => {
+  it('does not exit on a path the GUI also reaches', async () => {
     refuseSaves();
     (userSettings as any).getValue = vi.fn(() => '');
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -395,6 +401,7 @@ describe('reporting a refused write', () => {
 
     try {
       addUserSetEnvironment('/envs/one', true);
+      await flushed();
       expect(exit).not.toHaveBeenCalled();
       expect(err).toHaveBeenCalled();
     } finally {
@@ -403,7 +410,24 @@ describe('reporting a refused write', () => {
     }
   });
 
-  // CLI-only, so nothing here runs inside the long-lived process and it has the same reason to stop as a refused setting.
+  // CLI-only, so nothing here runs inside the long-lived process and it has the same reason to stop as a refused setting. The discriminator between exiting and exiting with the message: process.exit drops a stderr write still queued on a pipe, measured as a message behind 200 KB arriving as 65536 bytes with the message itself gone. A direct process.exit here would satisfy every other assertion in this block, so this is the one that fails if the flush is taken out.
+  it('does not exit until stderr has drained', async () => {
+    refuseSaves();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      handleConfigSetCommand({ _: ['set', 'theme', 'dark'] });
+
+      expect(exit).not.toHaveBeenCalled();
+      await flushed();
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      err.mockRestore();
+      out.mockRestore();
+    }
+  });
+
   it('exits non-zero when the registry refresh could not be written', async () => {
     refuseSaves();
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -411,6 +435,7 @@ describe('reporting a refused write', () => {
 
     try {
       await handleEnvUpdateRegistryCommand({ _: ['update-registry'] });
+      await flushed();
       expect(exit).toHaveBeenCalledWith(1);
     } finally {
       err.mockRestore();
@@ -427,10 +452,12 @@ describe('reporting a refused write', () => {
     try {
       handleConfigUnsetCommand({ _: ['unset', 'theme'], project: '/data/nb' });
       expect(out).toHaveBeenCalled();
+      await flushed();
       expect(exit).not.toHaveBeenCalled();
 
       refuseSaves();
       handleConfigUnsetCommand({ _: ['unset', 'theme'], project: '/data/nb' });
+      await flushed();
       expect(exit).toHaveBeenCalledWith(1);
     } finally {
       err.mockRestore();
@@ -515,5 +542,29 @@ describe('handleEnvActivateCommand', () => {
     );
     errorSpy.mockRestore();
     logSpy.mockRestore();
+  });
+});
+
+// `list` prints settingsFilePathFor and `set` writes through new WorkspaceSettings, both of which resolve; open-file built its path from the raw argument, so for a symlinked --project-path it named a file nothing loads and offered it up to be hand-edited.
+describe('config open-file names the file the app reads', () => {
+  beforeEach(() => {
+    vi.mocked(resolveWorkingDirectory).mockImplementation(() => '/resolved');
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    // statSync is not in the fs mock factory, so vi.mocked hands back the real one
+    vi.spyOn(fs, 'statSync').mockReturnValue({
+      isDirectory: () => true,
+      isFile: () => true
+    } as any);
+  });
+
+  it('uses the resolved project path, not the argument', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    handleConfigOpenFileCommand({ projectPath: '/link' });
+
+    const printed = log.mock.calls.map(c => String(c[0])).join('\n');
+    expect(printed).toContain('/resolved/.jupyter/desktop-settings.json');
+    expect(printed).not.toContain('/link/.jupyter/desktop-settings.json');
+    log.mockRestore();
   });
 });

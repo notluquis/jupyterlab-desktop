@@ -566,7 +566,7 @@ export async function handleEnvUpdateRegistryCommand(argv: any) {
       'Could not write the application data file, so the refreshed registry is only in memory.'
     );
     // CLI-only, unlike addUserSetEnvironment above: app.ts imports only that one and createPythonEnvironment, so nothing here runs inside the long-lived process and `jlab env update-registry && deploy.sh` has the same reason to stop as a refused setting.
-    process.exit(1);
+    exitAfterStderrDrains(1);
   }
 }
 
@@ -926,7 +926,7 @@ function reportUnsavedSetting(
   //
   // Off for the callers that also run inside the long-lived GUI process, where nothing is about to exit and killing it would be worse than a lost setting.
   if (setsExitCode) {
-    process.exit(1);
+    exitAfterStderrDrains(1);
   }
 }
 
@@ -987,6 +987,15 @@ export async function handleEnvSetSystemPythonPathCommand(argv: any) {
   }
 
   console.log(`Setting "${systemPythonPath}" as the system Python path`);
+}
+
+/**
+ * Exit with `code` once anything already written to stderr has actually left.
+ *
+ * `process.exit` drops a write still queued on a pipe. Measured on this repo's Node: a message behind 200 KB of prior output arrives as 65536 bytes, one pipe buffer, with the message itself gone while the status still lands, so `jlab config set ... || echo failed` reports a failure naming nothing. `fs.writeSync(2, ...)` does not help, because the queued write is still ahead of it. An empty write's callback runs after the queue in front of it has drained.
+ */
+function exitAfterStderrDrains(code: number): void {
+  process.stderr.write('', () => process.exit(code));
 }
 
 function getProjectPathForConfigCommand(argv: any): string | undefined {
@@ -1179,12 +1188,10 @@ export function handleConfigUnsetCommand(argv: any) {
   );
 }
 
-function handleConfigOpenFileCommand(argv: any) {
+export function handleConfigOpenFileCommand(argv: any) {
   const projectPath = getProjectPathForConfigCommand(argv);
-  // Not settingsFilePathFor, which routes through resolveWorkingDirectory: its lstatSync rejects a symlinked project directory and substitutes $HOME, while getProjectPathForConfigCommand validated the same argument with statSync, which follows the link. That would open somebody else's settings file for the user to hand-edit, silently, because $HOME is the default working directory and its file usually exists. master built the path from the unresolved argument here and this keeps doing that; the lstatSync itself is #1114's.
-  const settingsFilePath = projectPath
-    ? WorkspaceSettings.getWorkspaceSettingsPath(projectPath)
-    : UserSettings.getUserSettingsPath();
+  // settingsFilePathFor, the same resolution `list` prints and `set` writes through: WorkspaceSettings resolves in its own constructor, so the resolved path is the file the app actually reads whether or not the resolution is right. Building this one from the unresolved argument instead would open a file nothing loads, and the point of this command is to hand-edit the one that counts. resolveWorkingDirectory's lstatSync collapses a symlinked project directory to $HOME, which is #1114's; while it does, all three commands are wrong about the same file rather than each about a different one.
+  const settingsFilePath = settingsFilePathFor(projectPath);
 
   console.log(`Settings file path: ${settingsFilePath}`);
 

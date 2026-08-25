@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Keyed by event so a push cannot cancel the weekly run. Nothing here is superseded the way a pushed-again pull request is, so nothing is cancelled: a cancelled run is grey rather than red, and would hide a result instead of replacing it.
+  # Keyed by event, which is the part that matters: it is what stops a push from cancelling a pending weekly run. `cancel-in-progress: false` protects the run that is already going, not one that is queued behind it, since the documented default cancels an existing pending run when a new one arrives; keeping those would need `queue: max`, and for an audit that reads the same files every time the newer run is the one worth having.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -34,12 +34,30 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.12'
-      # A hard gate, because master and the weekly run are where a red result is worth having: the hosts belong to other people, so this will occasionally go red for their reasons rather than ours, and the ignore list below is where that gets answered when it does.
+      # Left to fail rather than tolerated, because master and the weekly run are where a red result is worth having. It gates nothing, since there is no pull_request trigger and so no check to block a merge: what it does is redden the commit and the scheduled run. The hosts belong to other people, so this will occasionally go red for their reasons, and the ignore list below is where that gets answered.
 
       # The comment says v1 because jupyterlab/jupyterlab pins this exact SHA with this exact label; the tag has since moved off it, so read the SHA rather than the word. The action's own files are unchanged between the two.
       - uses: jupyterlab/maintainer-tools/.github/actions/check-links@95d85449e4f3f352e261221f6529f8ed307f5728 # v1
         with:
           # Only the installer links, not github.com wholesale: the checker GETs each link in full, so those five download 2.2 GB per run, while the other twenty github.com links in these files cost nothing to check and include a file path inside somebody else's repository, which is the shape a rename breaks. jupyterlab ignores the host outright because their docs carry hundreds of them; here it is twenty-five. blog.jupyter.org stays whole: Medium answers a checker with 403 while the pages load fine.
           ignore_links: >-
-            https://github.com/.*/releases/latest/download/.*
+            https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/.*
             https://blog.jupyter.org/.*
+
+      # The five links the ignore above takes out are the most used in the repository, and they
+      # are the ones a packaging change breaks: the filenames come from electron-builder's
+      # artifactName, so a rename lands a 404 on every install instruction with the audit unable
+      # to see it. HEAD rather than GET, which is what makes them cheap enough to check here and
+      # not cheap enough for the action, and read out of the README so the list cannot go stale.
+      - name: Check the installer links resolve
+        run: |
+          set -euo pipefail
+          urls=$(grep -oE 'https://github\.com/jupyterlab/jupyterlab-desktop/releases/latest/download/[^) ]+' README.md | sort -u)
+          test -n "$urls" || { echo "no installer links found in README.md; the pattern above and the table have drifted"; exit 1; }
+          bad=0
+          for u in $urls; do
+            code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$u" || echo 000)
+            echo "$code  $u"
+            case "$code" in 2*) ;; *) bad=1 ;; esac
+          done
+          exit $bad

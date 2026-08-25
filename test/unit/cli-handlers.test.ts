@@ -325,10 +325,15 @@ describe('reporting a refused write', () => {
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as any);
   });
-  afterEach(() => exit.mockRestore());
+  // Waits before restoring, so a deferred exit lands while the stub is still up. Three tests here assert only on the message and never await the flush themselves, and their exits reached the real process.exit after the restore: vitest reported an unhandled error while every test in the file still passed, which is the shape that only showed up once stderr was a pipe on CI.
+  afterEach(async () => {
+    await flushed();
+    exit.mockRestore();
+  });
 
-  // The exit is no longer synchronous: it runs from an empty stderr write's callback, so that a message queued behind a full pipe reaches the reader before the process goes away. Without letting one tick run, these assert on an exit that has not been reached yet.
-  const flushed = () => new Promise(resolve => setImmediate(resolve));
+  // The exit is no longer synchronous: it runs from an empty stderr write's callback, so that a message queued behind a full pipe reaches the reader before the process goes away. Without letting one tick run, these assert on an exit that has not been reached yet. Queued behind the code's own empty write, not setImmediate: stderr writes are ordered, so this callback cannot run before that one. setImmediate only happened to be late enough when stderr was a terminal; against a pipe the exit fired after afterEach had restored the spy, and the real process.exit reached vitest as an unhandled error while every test still passed.
+  const flushed = () =>
+    new Promise<void>(resolve => process.stderr.write('', () => resolve()));
 
   it('says the file could not be written, and does not claim success', async () => {
     refuseSaves();

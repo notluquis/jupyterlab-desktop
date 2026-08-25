@@ -1,13 +1,12 @@
 # Link rot in the documentation, found before a reader finds it. Uses the organisation's own action, the same one jupyterlab/jupyterlab runs.
 name: External Link Audit
 
+# No pull_request trigger, and neither shape of one worked. Blocking, a 403 from Cloudflare or a Read the Docs outage reddens a TypeScript change that touches no documentation. Advisory through continue-on-error is worse: the step fails and `gh pr checks` still prints pass, so the only surface is the raw log and nobody reads it, which is the same criticism this repository already writes about zizmor. What is left is a link added in a pull request being caught on the push that merges it, minutes later, on a run where nothing is waiting.
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
   schedule:
-    # Weekly: link rot happens over time, so a pull request trigger alone would never see a link that died after it merged.
+    # Weekly: link rot happens over time, so a push trigger alone would never see a link that died after it merged.
     - cron: '17 6 * * 1'
   workflow_dispatch:
 
@@ -15,9 +14,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  # event_name is in the group above, so push, schedule and pull_request never share a group and cannot cancel each other. This narrows it further, to the only case where cancelling is right: a superseded run of the same pull request. A cancelled run is grey rather than red, so cancelling anything else would hide a result instead of replacing it.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Keyed by event so a push cannot cancel the weekly run. Nothing here is superseded the way a pushed-again pull request is, so nothing is cancelled: a cancelled run is grey rather than red, and would hide a result instead of replacing it.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # No change-detection job, unlike jupyterlab's: theirs builds the docs first and takes minutes, this one walks the markdown in well under a minute, so the extra runner would cost more than it saves. It would also be the wrong gate, since most of the links here are relative and a broken relative link changes no line containing a URL.
 
@@ -31,9 +30,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      # Advisory on a pull request, blocking on master and on the weekly run. The hosts here belong to other people: one 403 from Cloudflare or a Read the Docs outage would otherwise turn every pull request in the repo red, including a TypeScript change that touches no documentation, and the fix would be editing this file under pressure. On master and on the schedule there is nothing to hold up, so there it stays a hard gate and link rot still surfaces.
+      # A hard gate, because master and the weekly run are where a red result is worth having: the hosts belong to other people, so this will occasionally go red for their reasons rather than ours, and the ignore list below is where that gets answered when it does.
       - uses: jupyterlab/maintainer-tools/.github/actions/check-links@95d85449e4f3f352e261221f6529f8ed307f5728 # v1
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:
           # github.com: the checker GETs each link in full, so the README's installer links download 2.2 GB per run. blog.jupyter.org: Medium answers a checker with 403 while the pages load. Both are on jupyterlab's list for the same reasons.
           ignore_links: >-

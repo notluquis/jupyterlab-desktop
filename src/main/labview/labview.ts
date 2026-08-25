@@ -17,6 +17,9 @@ import {
   isDarkTheme,
   LightThemeBGColor
 } from '../utils';
+import { classifyNavigation, NavigationVerdict } from '../navigationpolicy';
+import { markGuarded, openUrlInSystemBrowser } from '../navigationguard';
+import { AuthWindow } from '../authwindow/authwindow';
 import { SessionWindow } from '../sessionwindow/sessionwindow';
 import {
   CtrlWBehavior,
@@ -37,10 +40,14 @@ export type ILoadErrorCallback = (
 
 const DESKTOP_APP_ASSETS_PATH = 'desktop-app-assets';
 
+// net::ERR_ABORTED, what Chromium reports for a navigation cancelled in flight
+const ERR_ABORTED = -3;
+
 export class LabView implements IDisposable {
   constructor(options: LabView.IOptions) {
     this._parent = options.parent;
     this._sessionConfig = options.sessionConfig;
+    this._onAuthCancelled = options.onAuthCancelled;
     const sessionConfig = this._sessionConfig;
     this._wsSettings = new WorkspaceSettings(sessionConfig.workingDirectory);
     this._jlabBaseUrl = `${sessionConfig.url.protocol}//${sessionConfig.url.host}${sessionConfig.url.pathname}`;
@@ -62,12 +69,15 @@ export class LabView implements IDisposable {
         partition
       }
     });
+    // this view decides per origin in _registerNavigationGuard
+    markGuarded(this._view.webContents);
 
     this._view.setBackgroundColor(
       options.isDarkTheme ? DarkThemeBGColor : LightThemeBGColor
     );
 
     this._registerBrowserEventHandlers();
+    this._registerNavigationGuard();
     this._addFallbackContextMenu();
 
     if (!this._sessionConfig.isRemote) {
@@ -131,26 +141,48 @@ export class LabView implements IDisposable {
   }
 
   load(errorCallback?: ILoadErrorCallback) {
-    const sessionConfig = this._sessionConfig;
+    const contents = this._view.webContents;
 
-    this._view.webContents.once(
-      'did-fail-load',
-      (
-        event: Electron.Event,
-        errorCode: number,
-        errorDescription: string,
-        validatedURL: string,
-        isMainFrame: boolean
-      ) => {
-        if (isMainFrame && errorCallback) {
-          errorCallback(errorCode, errorDescription);
-        } else {
-          console.warn('Failed to load labview', errorDescription);
-        }
+    // only the first load answers "did JupyterLab come up", so the watch is
+    // dropped once the answer is in; a broken image in a notebook must not
+    // spend it, and a blip an hour later must not paint an error over a live
+    // session
+    const stopWatching = () => {
+      contents.off('did-fail-load', onFailLoad);
+      contents.off('did-finish-load', stopWatching);
+    };
+
+    const onFailLoad = (
+      event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      validatedURL: string,
+      isMainFrame: boolean
+    ) => {
+      if (!isMainFrame) {
+        console.warn('Failed to load labview', errorDescription);
+        return;
       }
-    );
 
-    this._view.webContents.loadURL(sessionConfig.url.href);
+      // diverting a redirect into the sign-in window aborts this load, and
+      // that window owns the outcome from there
+      if (errorCode === ERR_ABORTED && this._authWindow) {
+        return;
+      }
+
+      stopWatching();
+
+      if (errorCallback) {
+        errorCallback(errorCode, errorDescription);
+      } else {
+        console.warn('Failed to load labview', errorDescription);
+      }
+    };
+
+    contents.on('did-fail-load', onFailLoad);
+    contents.once('did-finish-load', stopWatching);
+
+    contents.loadURL(this._sessionConfig.url.href);
   }
 
   get jlabBaseUrl(): string {
@@ -292,6 +324,11 @@ export class LabView implements IDisposable {
   get labUIReady(): Promise<boolean> {
     return new Promise<boolean>(resolve => {
       const checkIfReady = () => {
+        if (this._isDisposed) {
+          // stop polling on dispose; leave the promise unsettled so a stale
+          // continuation cannot run against an already null labView.
+          return;
+        }
         if (this._labUIReady) {
           resolve(true);
         } else {
@@ -306,7 +343,13 @@ export class LabView implements IDisposable {
   }
 
   async dispose(): Promise<void> {
+    this._isDisposed = true;
     this._evm.dispose();
+
+    if (this._authWindow) {
+      await this._authWindow.dispose();
+      this._authWindow = null;
+    }
 
     // if local or remote with no data persistence, clear session data
     if (
@@ -322,6 +365,105 @@ export class LabView implements IDisposable {
     if (!this._view.webContents.isDestroyed()) {
       this._view.webContents.close();
     }
+  }
+
+  /**
+   * Route every lab view navigation through classifyNavigation, so the three
+   * hooks cannot drift apart. The view is privileged, since the getServerInfo
+   * IPC hands the server URL and auth token to whatever it is showing, so it
+   * stays on the Jupyter server origin and anything else is placed elsewhere.
+   */
+  private _registerNavigationGuard(): void {
+    const classify = (
+      target: string,
+      kind: 'navigate' | 'redirect'
+    ): NavigationVerdict =>
+      classifyNavigation({
+        target,
+        serverUrl: this._sessionConfig.url?.href,
+        kind
+      });
+
+    const act = (verdict: NavigationVerdict, url: string): void => {
+      if (verdict === 'auth-window') {
+        this._runAuthChain(url);
+      } else if (verdict === 'external') {
+        openUrlInSystemBrowser(url);
+      }
+    };
+
+    const handle = (
+      details: Electron.Event & { url: string },
+      kind: 'navigate' | 'redirect'
+    ): void => {
+      const verdict = classify(details.url, kind);
+      if (verdict === 'in-view') {
+        return;
+      }
+      details.preventDefault();
+      act(verdict, details.url);
+    };
+
+    this._view.webContents.on('will-redirect', details => {
+      // a subframe (HTML output, the PDF viewer, a proxied panel) is not the
+      // privileged surface and keeps following its own redirects
+      if (details.isMainFrame) {
+        handle(details, 'redirect');
+      }
+    });
+
+    // will-navigate only fires for the main frame
+    this._view.webContents.on('will-navigate', details =>
+      handle(details, 'navigate')
+    );
+
+    this._view.webContents.setWindowOpenHandler(({ url }) => {
+      const verdict = classify(url, 'navigate');
+      if (verdict === 'in-view') {
+        return { action: 'allow' };
+      }
+      act(verdict, url);
+      return { action: 'deny' };
+    });
+  }
+
+  private _runAuthChain(url: string): void {
+    // dispose already took the sign-in window down; nothing is left to close a
+    // new one
+    if (this._isDisposed) {
+      return;
+    }
+
+    if (this._authWindow) {
+      this._authWindow.navigate(url);
+      return;
+    }
+
+    this._authWindow = new AuthWindow({
+      session: this._view.webContents.session,
+      parent: this._parent.window,
+      startUrl: url,
+      serverUrl: this._sessionConfig.url.href,
+      onComplete: () => {
+        this._authWindow = null;
+        this.reload();
+      },
+      onCancel: reason => {
+        this._authWindow = null;
+        this._onAuthCancelled?.(reason);
+      }
+    });
+  }
+
+  /**
+   * Put the view back on the Jupyter server URL, wherever it has been taken.
+   */
+  reload(): void {
+    void this._view.webContents
+      .loadURL(this._sessionConfig.url.href)
+      .catch(error => {
+        log.debug('lab view reload failed', error);
+      });
   }
 
   /**
@@ -554,6 +696,9 @@ export class LabView implements IDisposable {
   private _jlabBaseUrl: string;
   private _wsSettings: WorkspaceSettings;
   private _labUIReady = false;
+  private _authWindow: AuthWindow | null = null;
+  private _onAuthCancelled: ((reason: string) => void) | undefined;
+  private _isDisposed = false;
   private _evm = new EventManager();
   private _uiMode: UIMode = UIMode.ManagedByWebApp;
 }
@@ -563,5 +708,6 @@ export namespace LabView {
     isDarkTheme: boolean;
     parent: SessionWindow;
     sessionConfig: SessionConfig;
+    onAuthCancelled?: (reason: string) => void;
   }
 }

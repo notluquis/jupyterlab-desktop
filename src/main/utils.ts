@@ -28,7 +28,7 @@ export interface ISaveOptions {
 }
 
 export function isDevMode(): boolean {
-  return require.main.filename.indexOf('app.asar') === -1;
+  return !app.isPackaged;
 }
 
 export function getAppDir(): string {
@@ -47,12 +47,10 @@ export function getUserHomeDir(): string {
 export function getUserDataDir(): string {
   const userDataDir = app.getPath('userData');
 
-  if (!fs.existsSync(userDataDir)) {
-    try {
-      fs.mkdirSync(userDataDir, { recursive: true });
-    } catch (error) {
-      log.error(error);
-    }
+  try {
+    fs.mkdirSync(userDataDir, { recursive: true });
+  } catch (error) {
+    log.error(error);
   }
 
   return userDataDir;
@@ -86,12 +84,10 @@ export function getBundledPythonInstallDir(): string {
       ? path.normalize(path.join(app.getPath('home'), 'Library', app.getName()))
       : app.getPath('userData');
 
-  if (!fs.existsSync(installDir)) {
-    try {
-      fs.mkdirSync(installDir, { recursive: true });
-    } catch (error) {
-      log.error(error);
-    }
+  try {
+    fs.mkdirSync(installDir, { recursive: true });
+  } catch (error) {
+    log.error(error);
   }
 
   return installDir;
@@ -115,6 +111,48 @@ export function isDarkTheme(themeType: string) {
   } else {
     return nativeTheme.shouldUseDarkColors;
   }
+}
+
+/**
+ * The origin of a URL, or null when there is not one: no URL, one that does not
+ * parse, or an opaque source such as data: and about:blank, which serialize to
+ * the literal "null" origin. Never throws.
+ */
+export function originOf(url: string | undefined | null): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a URL uses one of the given schemes, written as URL.protocol does,
+ * with the colon. False when the URL does not parse.
+ */
+export function matchesScheme(url: string, ...schemes: string[]): boolean {
+  try {
+    return schemes.includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strict same-origin check between two URLs. False when either URL is absent,
+ * unparseable, or has an opaque origin. Never throws.
+ */
+export function isSameServerOrigin(
+  senderUrl: string | undefined | null,
+  serverUrl: string | undefined | null
+): boolean {
+  const sender = originOf(senderUrl);
+  const server = originOf(serverUrl);
+  return sender !== null && server !== null && sender === server;
 }
 
 export function clearSession(session: Electron.Session): Promise<void> {
@@ -393,11 +431,7 @@ export function markEnvironmentAsJupyterInstalled(
   };
 
   try {
-    const dirPath = path.dirname(envInstallInfoPath);
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-    }
-
+    fs.mkdirSync(path.dirname(envInstallInfoPath), { recursive: true });
     fs.writeFileSync(envInstallInfoPath, JSON.stringify(data, null, 2));
   } catch (error) {
     console.error('Failed to create file', envInstallInfoPath, error);

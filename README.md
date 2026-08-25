@@ -1,8 +1,14 @@
+**[Installation](#installation)** |
+**[User guide](user-guide.md)** |
+**[Contributing](#contributing)** |
+**[Getting help](#getting-help)**
+
 # JupyterLab Desktop
 
-> [!CAUTION]
-> As of August 2025, JupyterLab Desktop is not actively maintained and does not receive security bug fixes. Using JupyterLab Desktop for sensitive data, or with untrusted notebooks/extensions is not recommended.
-> If you would like to contribute and help with maintenance, please get in touch by leaving a comment on the [issue discussing project archival](https://github.com/jupyterlab/jupyterlab-desktop/issues/890).
+[![Release](https://img.shields.io/github/v/release/jupyterlab/jupyterlab-desktop)](https://github.com/jupyterlab/jupyterlab-desktop/releases/latest)
+[![Snap Store](https://snapcraft.io/jupyterlab-desktop/badge.svg)](https://snapcraft.io/jupyterlab-desktop)
+[![E2E](https://github.com/jupyterlab/jupyterlab-desktop/actions/workflows/e2e.yml/badge.svg?branch=master)](https://github.com/jupyterlab/jupyterlab-desktop/actions/workflows/e2e.yml?query=branch%3Amaster)
+[![Type check](https://github.com/jupyterlab/jupyterlab-desktop/actions/workflows/typecheck.yml/badge.svg?branch=master)](https://github.com/jupyterlab/jupyterlab-desktop/actions/workflows/typecheck.yml?query=branch%3Amaster)
 
 JupyterLab Desktop is the cross-platform desktop application for [JupyterLab](https://github.com/jupyterlab/jupyterlab). It is the quickest and easiest way to get started with Jupyter notebooks on your personal computer, with the flexibility for advanced use cases.
 
@@ -12,7 +18,7 @@ JupyterLab Desktop is the cross-platform desktop application for [JupyterLab](ht
 
 Install JupyterLab Desktop using one of the methods listed below for your system.
 
-| Windows (10, 11)                                                                                                            | Mac (macOS 10.15+)                                                                                                                            | Linux                                                                                                                                                   |
+| Windows (10, 11)                                                                                                            | Mac (macOS 12+)                                                                                                                               | Linux (Ubuntu 18.04+, Fedora 32+, Debian 10+)                                                                                                           |
 | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [x64 Installer](https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/JupyterLab-Setup-Windows-x64.exe) | [arm64 Installer (Apple silicon)](https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/JupyterLab-Setup-macOS-arm64.dmg) | [Snap Store [recommended]](https://snapcraft.io/jupyterlab-desktop)                                                                                     |
 |                                                                                                                             | [x64 Installer (Intel chip)](https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/JupyterLab-Setup-macOS-x64.dmg)        | [.deb x64 Installer (Debian, Ubuntu)](https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/JupyterLab-Setup-Debian-x64.deb)        |
@@ -86,4 +92,12 @@ JupyterLab Desktop currently supports user-friendly [prebuilt](https://jupyterla
 
 - See [troubleshooting guide](troubleshoot.md) for troubleshooting issues
 
-- For contributing, see [developer documentation](dev.md)
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running, testing and packaging the application.
+
+## Getting help
+
+Questions about using JupyterLab Desktop are welcome on the [Jupyter Discourse forum](https://discourse.jupyter.org/). If you have found a defect, check the [troubleshooting guide](troubleshoot.md) first, then open an [issue](https://github.com/jupyterlab/jupyterlab-desktop/issues).
+
+Security vulnerabilities never go to a public issue: the [Jupyter security policy](https://jupyter.org/security) asks for a GitHub Security Advisory on this repository, and security@jupyter.org only when that is not possible.

@@ -81,6 +81,7 @@ export enum EventTypeMain {
   SetSystemPythonPath = 'set-system-python-path',
   CopySessionInfoToClipboard = 'copy-session-info-to-clipboard',
   RestartSession = 'restart-session',
+  RetrySignIn = 'retry-sign-in',
   SetSettings = 'set-settings',
   SetupCLICommandWithElevatedRights = 'setup-cli-command'
 }
@@ -96,6 +97,7 @@ export enum EventTypeRenderer {
   SetRunningServerList = 'set-running-server-list',
   SetTitle = 'set-title',
   SetActive = 'set-active',
+  SetMaximized = 'set-maximized',
   ShowServerStatus = 'show-server-status',
   ShowServerNotificationBadge = 'show-server-notification-badge',
   SetRecentSessionList = 'set-recent-session-list',

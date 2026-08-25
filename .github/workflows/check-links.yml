@@ -44,11 +44,7 @@ jobs:
             https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/.*
             https://blog.jupyter.org/.*
 
-      # The five links the ignore above takes out are the most used in the repository, and they
-      # are the ones a packaging change breaks: the filenames come from electron-builder's
-      # artifactName, so a rename lands a 404 on every install instruction with the audit unable
-      # to see it. HEAD rather than GET, which is what makes them cheap enough to check here and
-      # not cheap enough for the action, and read out of the README so the list cannot go stale.
+      # The five links the ignore above takes out are the most used in the repository, and they are the ones a packaging change breaks: the filenames come from electron-builder's artifactName, so a rename lands a 404 on every install instruction with the audit unable to see it. HEAD rather than GET, which is what makes them cheap enough to check here and not cheap enough for the action, and read out of the README so the list cannot go stale.
       - name: Check the installer links resolve
         run: |
           set -euo pipefail

@@ -303,6 +303,7 @@ export class UserSettings {
       return;
     }
     const data = fs.readFileSync(userSettingsPath);
+    // Unguarded on purpose, and worth saying because the reader above makes it look otherwise: this branch protects the *write*, not the read. `userSettings` is constructed at module import, so a settings.json edited into invalid JSON while the app is closed throws here before app.whenReady and the app does not start at all. Only the mid-run edit reaches readJsonFileOrEmpty's catch and gets the file left alone. Guarding this one is #1115, which replaces both call sites with a shared reader.
     const jsonData = JSON.parse(data.toString());
 
     for (let key in SettingType) {

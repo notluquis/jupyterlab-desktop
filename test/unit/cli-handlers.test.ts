@@ -361,9 +361,7 @@ describe('handleEnvActivateCommand', () => {
   });
 });
 
-// Neither refusal had a test: the handlers were not exported, so mutating either guard away left
-// the whole suite green. `set` got its guard three rounds before `unset` did, and the gap between
-// them is the shape this branch already carries a note about, a guard written on one side only.
+// Neither refusal had a test: the handlers were not exported, so mutating either guard away left the whole suite green. `set` got its guard three rounds before `unset` did, and the gap between them is the shape this branch already carries a note about, a guard written on one side only.
 describe('a config command that could not write says so', () => {
   let exit: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {

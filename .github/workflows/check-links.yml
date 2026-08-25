@@ -30,10 +30,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      # The action runs a bare `pip install pytest-check-links[cache]` with no interpreter of its own, so without this it lands in whatever the runner image happens to ship. sync_lab_release.yml already pins one for the same reason, and a reinstated PEP 668 marker or an image bump would otherwise turn a hard-gating master check red for a reason that has nothing to do with link rot.
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.12'
       # A hard gate, because master and the weekly run are where a red result is worth having: the hosts belong to other people, so this will occasionally go red for their reasons rather than ours, and the ignore list below is where that gets answered when it does.
+
+      # The comment says v1 because jupyterlab/jupyterlab pins this exact SHA with this exact label; the tag has since moved off it, so read the SHA rather than the word. The action's own files are unchanged between the two.
       - uses: jupyterlab/maintainer-tools/.github/actions/check-links@95d85449e4f3f352e261221f6529f8ed307f5728 # v1
         with:
-          # github.com: the checker GETs each link in full, so the README's installer links download 2.2 GB per run. blog.jupyter.org: Medium answers a checker with 403 while the pages load. Both are on jupyterlab's list for the same reasons.
+          # Only the installer links, not github.com wholesale: the checker GETs each link in full, so those five download 2.2 GB per run, while the other twenty github.com links in these files cost nothing to check and include a file path inside somebody else's repository, which is the shape a rename breaks. jupyterlab ignores the host outright because their docs carry hundreds of them; here it is twenty-five. blog.jupyter.org stays whole: Medium answers a checker with 403 while the pages load fine.
           ignore_links: >-
-            https://github.com/.*
+            https://github.com/.*/releases/latest/download/.*
             https://blog.jupyter.org/.*

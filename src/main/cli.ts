@@ -565,8 +565,8 @@ export async function handleEnvUpdateRegistryCommand(argv: any) {
     console.error(
       'Could not write the application data file, so the refreshed registry is only in memory.'
     );
-    // CLI-only, unlike addUserSetEnvironment above: app.ts imports only that one and createPythonEnvironment, so nothing here runs inside the long-lived process and `jlab env update-registry && deploy.sh` has the same reason to stop as a refused setting.
-    exitAfterStderrDrains(1);
+    // CLI-only, unlike addUserSetEnvironment above: app.ts imports only that one and createPythonEnvironment, so nothing here runs inside the long-lived process and `jlab env update-registry && deploy.sh` has the same reason to stop as a refused setting. process.exit, not a deferred exit from a stderr write callback. That was tried and reverted: under plain Node the deferred form does rescue a message queued behind 200 KB of output, which process.exit drops at one pipe buffer, but this ships inside Electron, where main.ts calls app.quit() in the same then. Measured against this repo's electron 42 with stderr on a pipe nobody drains: short output and 60 KB deliver the message and the status either way, while at 200 KB and above the deferred form exits 0 five times out of five, losing the status as well as the message, where the synchronous one keeps the status every time. The truncation above that size is real and is in Remaining; trading the status for it is not a trade worth making, since the status is what `jlab config set ... && deploy.sh` reads.
+    process.exit(1);
   }
 }
 
@@ -926,7 +926,7 @@ function reportUnsavedSetting(
   //
   // Off for the callers that also run inside the long-lived GUI process, where nothing is about to exit and killing it would be worse than a lost setting.
   if (setsExitCode) {
-    exitAfterStderrDrains(1);
+    process.exit(1);
   }
 }
 
@@ -987,15 +987,6 @@ export async function handleEnvSetSystemPythonPathCommand(argv: any) {
   }
 
   console.log(`Setting "${systemPythonPath}" as the system Python path`);
-}
-
-/**
- * Exit with `code` once anything already written to stderr has actually left.
- *
- * `process.exit` drops a write still queued on a pipe. Measured on this repo's Node: a message behind 200 KB of prior output arrives as 65536 bytes, one pipe buffer, with the message itself gone while the status still lands, so `jlab config set ... || echo failed` reports a failure naming nothing. `fs.writeSync(2, ...)` does not help, because the queued write is still ahead of it. An empty write's callback runs after the queue in front of it has drained.
- */
-function exitAfterStderrDrains(code: number): void {
-  process.stderr.write('', () => process.exit(code));
 }
 
 function getProjectPathForConfigCommand(argv: any): string | undefined {

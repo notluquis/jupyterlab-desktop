@@ -387,9 +387,16 @@ function carryOwnershipOntoPath(createdRoot: string, leaf: string): void {
 
   for (let dir = leaf; dir.startsWith(createdRoot); dir = path.dirname(dir)) {
     // Through a descriptor, for the same reason carryOwnership gives below: the path form follows a symlink, and this runs as root over directories that were created a moment ago, so between the mkdir and here somebody who can write the parent could swap one for a link and have root chown whatever it names.
+    //
+    // O_NOFOLLOW because a descriptor is not the protection on its own, which is the difference from carryOwnership: its fd comes from an O_CREAT|O_EXCL open, which cannot follow a link, while a plain 'r' open resolves one like any path. Measured: openSync on a link to a directory returns a descriptor whose fstat is the target's inode, and the same open with O_NOFOLLOW|O_DIRECTORY refuses. Without it the comment above describes a guard that is not there, and `sudo jlab config set --project <dir> ...` over a directory a local user can write hands root an fchown on whatever they point it at. Only ever reached under getuid() === 0, so the POSIX-only flags are safe here.
     let dirFd: number | undefined;
     try {
-      dirFd = fs.openSync(dir, 'r');
+      dirFd = fs.openSync(
+        dir,
+        fs.constants.O_RDONLY |
+          fs.constants.O_NOFOLLOW |
+          fs.constants.O_DIRECTORY
+      );
       fs.fchownSync(dirFd, owner.uid, owner.gid);
     } catch (error) {
       log.error(`Failed to carry ownership onto ${dir}`, error);

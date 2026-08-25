@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { constants as fsConstants } from 'node:fs';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app, nativeTheme } from 'electron';
@@ -1164,6 +1165,16 @@ describe('writeJsonConfigFile', () => {
 
     // through a descriptor, not the path: this runs as root over a directory created a moment ago
     expect(mockFs.fchownSync).toHaveBeenCalledWith(7, 501, 20);
+
+    // A descriptor is not the guard on its own, which is what the assertion above cannot see: a plain 'r' open resolves a symlink like any path, so root would fchown whatever a swapped-in link names. carryOwnership's fd is safe for a different reason, its O_CREAT|O_EXCL open, and copying the reasoning without the flags left this one open.
+    const flags = vi
+      .mocked(mockFs.openSync)
+      .mock.calls.map(call => Number(call[1]))
+      .filter(f => Number.isFinite(f));
+    expect(flags.length).toBeGreaterThan(0);
+    for (const f of flags) {
+      expect(f & fsConstants.O_NOFOLLOW).toBe(fsConstants.O_NOFOLLOW);
+    }
   });
 
   // `wx` exists so an entry already at that name is refused rather than followed, and the cleanup would have deleted it anyway, undoing the guard on the one path where it fired. Unreachable against a real filesystem now that the name is random, which is why it is pinned here.

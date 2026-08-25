@@ -162,6 +162,29 @@ describe('WorkspaceSettings save', () => {
     expect(parsed.uiMode).toBe(UIMode.Zen);
   });
 
+  // The twin of the UserSettings case in settings.test.ts, and it was the only one of the two guards no test could see: mutating this refusal away left the whole suite green. A project's desktop-settings.json that becomes unreadable between the read and the save would then be rebuilt from whatever survived, which is the loss the merge exists to prevent.
+  it('leaves a workspace file alone when it is there and could not be read', () => {
+    mockFs.existsSync = vi.fn(() => true);
+    let projectReads = 0;
+    mockFs.readFileSync = vi.fn((target: any) => {
+      // super.read() reads the global file first, and only the project one is the subject here
+      if (!String(target).includes('desktop-settings.json')) {
+        return Buffer.from('{}');
+      }
+      if (projectReads++ === 0) {
+        return Buffer.from('{"uiMode":"zen"}');
+      }
+      throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+    }) as any;
+    mockFs.writeFileSync = vi.fn();
+
+    const ws = new WorkspaceSettings('/data/nb');
+    ws.setValue(SettingType.uiMode, UIMode.MultiDocument);
+
+    expect(ws.save()).toBe(false);
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+  });
+
   it('creates parent directory when it does not exist', () => {
     const ws = new WorkspaceSettings('/data/nb');
     ws.setValue(SettingType.uiMode, UIMode.Zen);

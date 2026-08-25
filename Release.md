@@ -57,7 +57,7 @@ Releases are driven by manually dispatched GitHub Actions workflows. They must b
 
 4. The [`Publish`](https://github.com/jupyterlab/jupyterlab-desktop/actions/workflows/publish.yml) workflow runs on the PR (and on any push to `master`). When it finds a draft or pre-release with a tag matching the version in `package.json`, it builds signed installers for each platform (Linux, macOS, Windows) and uploads them as assets to that release. New runs overwrite the existing installer assets. Release builds also publish the snap installer to the `latest/candidate` channel in the Snap Store.
 
-5. Make sure that application is building, installing and running properly by following the [distribution build instructions](dev.md#building-for-distribution) locally, or by testing the installers attached to the pre-release.
+5. Make sure that application is building, installing and running properly by following the [distribution build instructions](CONTRIBUTING.md#building-for-distribution) locally, or by testing the installers attached to the pre-release.
 
 6. Once all the changes are complete, installers are uploaded and the release notes are ready, merge the release PR and publish the release.
 

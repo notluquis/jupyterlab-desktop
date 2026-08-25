@@ -982,7 +982,7 @@ function handleConfigListCommand(argv: any) {
   console.log(listLines.join('\n'));
 }
 
-function handleConfigSetCommand(argv: any) {
+export function handleConfigSetCommand(argv: any) {
   const parseSetting = (): { key: string; value: string } => {
     if (argv._.length !== 3) {
       console.error(`Invalid setting. Use "set <settingKey> <value>" format.`);
@@ -1059,7 +1059,7 @@ function handleConfigSetCommand(argv: any) {
   );
 }
 
-function handleConfigUnsetCommand(argv: any) {
+export function handleConfigUnsetCommand(argv: any) {
   const parseKey = (): string => {
     if (argv._.length !== 2) {
       console.error(`Invalid setting. Use "unset <settingKey>" format.`);
@@ -1082,6 +1082,7 @@ function handleConfigUnsetCommand(argv: any) {
     return;
   }
 
+  let saved: boolean;
   if (projectPath) {
     const setting = userSettings.settings[key];
     if (!setting.wsOverridable) {
@@ -1091,10 +1092,18 @@ function handleConfigUnsetCommand(argv: any) {
 
     const wsSettings = new WorkspaceSettings(projectPath);
     wsSettings.unsetValue(key as SettingType);
-    wsSettings.save();
+    saved = wsSettings.save();
   } else {
     userSettings.unsetValue(key as SettingType);
-    userSettings.save();
+    saved = userSettings.save();
+  }
+
+  // the same refusal `set` already reports: a reset announced over a file that was left untouched is the one shape automation cannot tell from success, and the guard was written on one side only
+  if (!saved) {
+    console.error(
+      `Could not write the settings file, so "${key}" was not reset. The log names the file and why.`
+    );
+    return;
   }
 
   console.log(

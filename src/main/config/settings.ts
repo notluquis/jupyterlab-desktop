@@ -143,7 +143,7 @@ const reportedUnreadable = new Map<
   'unreadable' | 'malformed' | 'shape'
 >();
 
-/** Say once per path that the file was there and unusable, and give back the empty object the caller merges over. */
+/** Say once per path that the file was there and unusable, and give back the sentinel that tells the caller to leave the file alone rather than merge over it. */
 function reportRejected(filePath: string): undefined {
   reportOnce(
     filePath,
@@ -425,8 +425,6 @@ export class WorkspaceSettings extends UserSettings {
     const wsSettingsPath = WorkspaceSettings.getWorkspaceSettingsPath(
       this._workingDirectory
     );
-    // uiMode needs special handling, it needs to be saved even if same as global default.
-    // this is due to automatically setting uiMode to Zen for default for opening single file
     const onDisk = readJsonFileOrEmpty(wsSettingsPath);
     // same as the user file above: there and unreadable means leave it alone
     if (onDisk === undefined) {
@@ -440,6 +438,7 @@ export class WorkspaceSettings extends UserSettings {
       const setting = this._wsSettings[key];
       if (
         setting &&
+        // uiMode is saved even when it matches the global default, because opening a single file sets it to Zen automatically and a project that matched by coincidence would lose the override
         (key === SettingType.uiMode ||
           this._isDifferentThanUserSetting(key as SettingType))
       ) {

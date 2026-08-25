@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const semver = require('semver');
 const yaml = require('js-yaml');
-const { copySync, readJSONSync } = require('./fsutil');
+const { copySync } = require('./fsutil');
+
+const readJSONSync = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 
 const pkgjsonFilePath = path.resolve(__dirname, '../package.json');
 

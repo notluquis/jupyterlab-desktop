@@ -1,9 +1,9 @@
 const fs = require('fs');
 
-// Native replacements for the fs-extra helpers these build scripts used.
+// The one fs-extra helper all three build scripts carried a copy of, at fourteen call sites.
+// The others it started with went back where they came from: removeSync and ensureDirSync are
+// used twice each in extract.js alone and readJSONSync once in buildutil.js, so hoisting them
+// removed no duplication and turned a local into a cross-file dependency.
 const copySync = (src, dest) => fs.cpSync(src, dest, { recursive: true });
-const removeSync = p => fs.rmSync(p, { recursive: true, force: true });
-const ensureDirSync = d => fs.mkdirSync(d, { recursive: true });
-const readJSONSync = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 
-module.exports = { copySync, removeSync, ensureDirSync, readJSONSync };
+module.exports = { copySync };

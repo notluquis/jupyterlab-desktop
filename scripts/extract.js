@@ -2,7 +2,10 @@ var rpt = require('read-package-tree');
 var path = require('path');
 var fs = require('fs');
 var glob = require('glob');
-const { copySync, removeSync, ensureDirSync } = require('./fsutil');
+const { copySync } = require('./fsutil');
+
+const removeSync = p => fs.rmSync(p, { recursive: true, force: true });
+const ensureDirSync = d => fs.mkdirSync(d, { recursive: true });
 
 var seen = {};
 

@@ -44,16 +44,23 @@ jobs:
             https://github.com/jupyterlab/jupyterlab-desktop/releases/latest/download/.*
             https://blog.jupyter.org/.*
 
-      # The five links the ignore above takes out are the most used in the repository, and they are the ones a packaging change breaks: the filenames come from electron-builder's artifactName, so a rename lands a 404 on every install instruction with the audit unable to see it. HEAD rather than GET, which is what makes them cheap enough to check here and not cheap enough for the action, and read out of the README so the list cannot go stale.
+      # The five links the ignore above takes out are the most used in the repository and the ones a packaging change breaks: those filenames come from electron-builder's artifactName, so a rename lands a 404 on every install instruction with the audit unable to see it. HEAD rather than GET, which is what makes them cheap enough to check here and not cheap enough for the action, and read out of the markdown so the list cannot go stale.
       - name: Check the installer links resolve
+        # always(), because the step above failing is exactly when these matter, and a step with no condition runs only after success
+        if: always()
         run: |
           set -euo pipefail
-          urls=$(grep -oE 'https://github\.com/jupyterlab/jupyterlab-desktop/releases/latest/download/[^) ]+' README.md | sort -u)
-          test -n "$urls" || { echo "no installer links found in README.md; the pattern above and the table have drifted"; exit 1; }
+          # `|| true` because grep exits 1 on no match and pipefail would abort the assignment before the check below it, turning the drift case into a red step with an empty log
+          urls=$(grep -ohE 'https://github\.com/jupyterlab/jupyterlab-desktop/releases/latest/download/[^) ]+' *.md | sort -u || true)
+          if [ -z "$urls" ]; then
+            echo "no installer links found; the ignore pattern above and the documentation have drifted apart"
+            exit 1
+          fi
           bad=0
           for u in $urls; do
-            code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$u" || echo 000)
+            # curl writes the -w value even when it exits non-zero, so a `|| echo 000` would concatenate onto it and `2*` would then read a late failure's `200000` as healthy
+            code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$u") || code=000
             echo "$code  $u"
-            case "$code" in 2*) ;; *) bad=1 ;; esac
+            case "$code" in 2[0-9][0-9]) ;; *) bad=1 ;; esac
           done
           exit $bad

@@ -10,9 +10,11 @@ import { join } from 'path';
 const userDataPath = join(tmpdir(), 'jlab-test-userdata');
 
 export const app = {
+  on: vi.fn(),
   getPath: vi.fn((name: string) => join(userDataPath, name)),
   getVersion: vi.fn(() => '4.4.7'),
   getName: vi.fn(() => 'JupyterLab'),
+  getAppPath: vi.fn(() => '/opt/JupyterLab/resources/app'),
   isPackaged: false,
   whenReady: vi.fn(() => Promise.resolve())
 };
@@ -54,6 +56,8 @@ export const BrowserWindow = vi.fn().mockImplementation(() => ({
 }));
 
 export const shell = { openExternal: vi.fn(), openPath: vi.fn() };
+
+export const net = { fetch: vi.fn() };
 
 export const nativeTheme = { shouldUseDarkColors: false };
 

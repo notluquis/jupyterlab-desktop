@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DarkThemeBGColor, LightThemeBGColor } from '../utils';
+import { guardAppOwnedView } from '../navigationguard';
 
 export class ThemedWindow {
   constructor(options: ThemedWindow.IOptions) {
@@ -26,6 +27,8 @@ export class ThemedWindow {
         preload: options.preload || path.join(__dirname, './preload.js')
       }
     });
+
+    guardAppOwnedView(this._window.webContents);
 
     // hide the traffic lights
     if (process.platform === 'darwin') {
@@ -106,6 +109,7 @@ export class ThemedWindow {
             overflow-y: auto;
           }
           </style>
+          <!-- do not prepend the cjsInteropShim here: the toolkit is a UMD bundle that branches on typeof exports, so faking exports breaks every jp-* component -->
           <script type="module">${toolkitJsSrc}</script>
           <script type="module">${cjsInteropShim}${titlebarJsSrc}</script>
           <script>

@@ -1165,17 +1165,43 @@ describe('writeJsonConfigFile', () => {
 
     // through a descriptor, not the path: this runs as root over a directory created a moment ago
     expect(mockFs.fchownSync).toHaveBeenCalledWith(7, 501, 20);
-
-    // A descriptor is not the guard on its own, which is what the assertion above cannot see: a plain 'r' open resolves a symlink like any path, so root would fchown whatever a swapped-in link names. carryOwnership's fd is safe for a different reason, its O_CREAT|O_EXCL open, and copying the reasoning without the flags left this one open.
-    const flags = vi
-      .mocked(mockFs.openSync)
-      .mock.calls.map(call => Number(call[1]))
-      .filter(f => Number.isFinite(f));
-    expect(flags.length).toBeGreaterThan(0);
-    for (const f of flags) {
-      expect(f & fsConstants.O_NOFOLLOW).toBe(fsConstants.O_NOFOLLOW);
-    }
   });
+
+  // A descriptor is not the guard on its own, which is what the assertion above cannot see: a plain 'r' open resolves a symlink like any path, so root would fchown whatever a swapped-in link names. carryOwnership's fd is safe for a different reason, its O_CREAT|O_EXCL open, and copying the reasoning without the flags left this one open.
+  //
+  // Its own test, skipped rather than made conditional, so the report says which platform did not run it. O_NOFOLLOW is POSIX and `fs.constants` has no such key on Windows, where `f & undefined` is 0 and the assertion compares 0 against undefined. The source is unreachable there anyway, since it returns unless getuid() is 0 and Windows has no getuid, but a silent `if` here would be a test that quietly checks nothing on a third of the matrix.
+  it.skipIf(process.platform === 'win32')(
+    'refuses a symlink where the directory should be',
+    () => {
+      const realGetuid = process.getuid;
+      (process as any).getuid = () => 0;
+      mockFs.lstatSync = vi.fn(() => {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }) as any;
+      mockFs.mkdirSync = vi.fn(() => '/proj/.jupyter') as any;
+      mockFs.statSync = vi.fn((target: string) => {
+        if (target === '/proj') {
+          return { uid: 501, gid: 20, mode: 0o40755 } as any;
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }) as any;
+
+      try {
+        writeJsonConfigFile('/proj/.jupyter/desktop-settings.json', {});
+      } finally {
+        (process as any).getuid = realGetuid;
+      }
+
+      const flags = vi
+        .mocked(mockFs.openSync)
+        .mock.calls.map(call => Number(call[1]))
+        .filter(f => Number.isFinite(f));
+      expect(flags.length).toBeGreaterThan(0);
+      for (const f of flags) {
+        expect(f & fsConstants.O_NOFOLLOW).toBe(fsConstants.O_NOFOLLOW);
+      }
+    }
+  );
 
   // `wx` exists so an entry already at that name is refused rather than followed, and the cleanup would have deleted it anyway, undoing the guard on the one path where it fired. Unreachable against a real filesystem now that the name is random, which is why it is pinned here.
   it('does not delete what was already at the temporary name', () => {

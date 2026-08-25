@@ -19,7 +19,8 @@ concurrency:
   # event_name is in the group above, so push, schedule and pull_request never share a group and cannot cancel each other. This narrows it further, to the only case where cancelling is right: a superseded run of the same pull request. A cancelled run is grey rather than red, so cancelling anything else would hide a result instead of replacing it.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# No change-detection job, unlike jupyterlab's: theirs builds the docs first, this audit is 25 seconds, and gating on `https?://` would skip broken relative links, which are most of them here. See the pull request for the counts.
+# No change-detection job, unlike jupyterlab's: theirs builds the docs first and takes minutes, this one walks the markdown in well under a minute, so the extra runner would cost more than it saves. It would also be the wrong gate, since most of the links here are relative and a broken relative link changes no line containing a URL.
+
 # Not audited: markdown under `.github/`. check_links.py collects with `glob.glob('**/*.md', recursive=True)`, and that function skips dot-directories unless asked otherwise, so the pull request and issue templates are outside this permanently. Measured, not assumed: `pathlib.Path.glob` does see them, so reading the wrong one of the two is how this looks covered.
 jobs:
   audit:

@@ -19,6 +19,19 @@ function walk(dir: string): string[] {
   });
 }
 
+// Find every source surface that allows popups.
+function surfacesThatAllowPopups(): string[] {
+  const root = join(__dirname, '../../src/main');
+  return walk(root)
+    .filter(file => {
+      const source = readFileSync(file, 'utf8');
+      return (
+        !file.endsWith('navigationguard.ts') && /action: 'allow'/.test(source)
+      );
+    })
+    .map(file => relative(root, file).split(sep).join('/'));
+}
+
 interface IFakeContents {
   on: (name: string, listener: (...args: any[]) => void) => void;
   setWindowOpenHandler: (handler: (details: { url: string }) => any) => void;
@@ -268,18 +281,20 @@ describe('every surface that claims navigation also declares a popup policy', ()
     }
   );
 
-  it('connect.ts marks the popup it allows, not just the window itself', () => {
-    // a popup is a fresh webContents nobody claimed, so allowing it without
-    // marking it leaves the global guard blocking its own start URL: the
-    // window opens on a blank document and the login never renders
-    const source = readFileSync(
-      join(__dirname, '../../src/main/connect.ts'),
-      'utf8'
-    );
+  it.each(surfacesThatAllowPopups())(
+    '%s claims the popup it allows, not just the window itself',
+    file => {
+      // An allowed child must be claimed or the global guard blocks its first navigation (#1134).
+      const source = readFileSync(
+        join(__dirname, '../../src/main', file),
+        'utf8'
+      );
 
-    expect(source).toContain("on('did-create-window'");
-    expect(source).toMatch(/did-create-window[\s\S]{0,160}markGuarded\(/);
-  });
+      // A child is reached after creation or from createWindow.
+      expect(source).toMatch(/did-create-window|createWindow:/);
+      expect(source).toContain('markGuarded(');
+    }
+  );
 
   it('names every direct caller of markGuarded', () => {
     const root = join(__dirname, '../../src/main');

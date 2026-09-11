@@ -406,7 +406,8 @@ export class LabView implements IDisposable {
 
     const wireNavigation = (contents: Electron.WebContents): void => {
       contents.on('will-redirect', details => {
-        // Subframes keep following redirects; only the privileged main frame is guarded.
+        // a subframe (HTML output, the PDF viewer, a proxied panel) is not the
+        // privileged surface and keeps following its own redirects
         if (details.isMainFrame) {
           handle(details, 'redirect');
         }

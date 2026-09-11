@@ -29,7 +29,8 @@ function surfacesThatAllowPopups(): string[] {
         !file.endsWith('navigationguard.ts') && /action: 'allow'/.test(source)
       );
     })
-    .map(file => relative(root, file).split(sep).join('/'));
+    .map(file => relative(root, file).split(sep).join('/'))
+    .sort();
 }
 
 interface IFakeContents {
@@ -280,6 +281,17 @@ describe('every surface that claims navigation also declares a popup policy', ()
       expect(source).toContain('setWindowOpenHandler(');
     }
   );
+
+  // The checks below take their file list from this scan. `it.each([])`
+  // registers no tests, so a scan that matched nothing would remove every one
+  // of them and still report a pass.
+  it('names every surface that allows a popup', () => {
+    expect(surfacesThatAllowPopups()).toEqual([
+      'authwindow/authwindow.ts',
+      'connect.ts',
+      'labview/labview.ts'
+    ]);
+  });
 
   it.each(surfacesThatAllowPopups())(
     '%s claims the popup it allows, not just the window itself',

@@ -23,12 +23,7 @@ function walk(dir: string): string[] {
 function surfacesThatAllowPopups(): string[] {
   const root = join(__dirname, '../../src/main');
   return walk(root)
-    .filter(file => {
-      const source = readFileSync(file, 'utf8');
-      return (
-        !file.endsWith('navigationguard.ts') && /action: 'allow'/.test(source)
-      );
-    })
+    .filter(file => /action: 'allow'/.test(readFileSync(file, 'utf8')))
     .map(file => relative(root, file).split(sep).join('/'))
     .sort();
 }
